@@ -1,5 +1,6 @@
 const ANIME_SAMA_BASE_URL = 'https://anime-sama.to';
 const CACHE_TTL_MS = 30 * 60 * 1000;
+const PLANNING_CACHE_TTL_MS = 60 * 1000;
 const WORK_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 20_000;
 const PAGE_CONCURRENCY = 5;
@@ -89,10 +90,10 @@ const safeAnimeSamaUrl = (value) => {
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error('URL Anime-Sama invalide.');
+    throw new Error('URL de fiche invalide.');
   }
   if (parsed.protocol !== 'https:' || !['anime-sama.to', 'www.anime-sama.to'].includes(parsed.hostname)) {
-    throw new Error('Seules les fiches Anime-Sama autorisées sont acceptées.');
+    throw new Error('Cette adresse ne correspond pas à une fiche autorisée.');
   }
   return parsed.href;
 };
@@ -278,7 +279,7 @@ async function refreshPlanning() {
 }
 
 export async function getAnimeSamaPlanning(forceRefresh = false) {
-  const fresh = planningCache && Date.now() - Date.parse(planningCache.updatedAt) < CACHE_TTL_MS;
+  const fresh = planningCache && Date.now() - Date.parse(planningCache.updatedAt) < PLANNING_CACHE_TTL_MS;
   if (!forceRefresh && fresh) return planningCache;
   if (!planningPromise) planningPromise = refreshPlanning().finally(() => { planningPromise = null; });
   return planningPromise;
@@ -465,7 +466,7 @@ async function getEpisodesForVersion(seasonUrl, versionName) {
   if (!sourceMatch) {
     return {
       name: versionName,
-      readers: [{ name: 'Lecteur Anime-Sama', episodes: [], available: false }]
+      readers: [{ name: 'Lecteur principal', episodes: [], available: false }]
     };
   }
 
@@ -480,7 +481,7 @@ async function getEpisodesForVersion(seasonUrl, versionName) {
       available: episodes.length > 0
     };
   });
-  if (!readers.length) readers.push({ name: 'Lecteur Anime-Sama', episodes: [], available: false });
+  if (!readers.length) readers.push({ name: 'Lecteur principal', episodes: [], available: false });
   return { name: versionName, readers };
 }
 
@@ -557,7 +558,7 @@ export async function getAnimeSamaWork(sourceUrl, forceRefresh = false) {
       } catch (error) {
         return {
           name: versionName,
-          readers: [{ name: 'Lecteur Anime-Sama', episodes: [], available: false }],
+          readers: [{ name: 'Lecteur principal', episodes: [], available: false }],
           error: error.message
         };
       }
@@ -573,7 +574,7 @@ export async function getAnimeSamaWork(sourceUrl, forceRefresh = false) {
 
   const data = {
     id: `anime-sama-${slugify(title || safeUrl)}`,
-    name: title || panels[0]?.name || 'Œuvre Anime-Sama',
+    name: title || panels[0]?.name || 'Œuvre sans titre',
     kind,
     sourceUrl: page.url,
     poster,
@@ -602,7 +603,7 @@ const routeRequest = async (request, response) => {
   if (url.pathname === '/api/anime-sama/catalogue' && request.method === 'GET') {
     const forceRefresh = url.searchParams.get('refresh') === 'true';
     if (forceRefresh && !allowForcedRefresh('catalogue')) {
-      sendJson(response, 429, { error: 'Une actualisation récente est déjà en cours. Réessayez dans quelques secondes.' });
+      sendJson(response, 429, { error: 'Une mise à jour récente est déjà en cours. Réessayez dans quelques secondes.' });
       return true;
     }
     const catalogue = await getAnimeSamaCatalogue(forceRefresh);
@@ -618,7 +619,7 @@ const routeRequest = async (request, response) => {
   if (url.pathname === '/api/anime-sama/planning' && request.method === 'GET') {
     const forceRefresh = url.searchParams.get('refresh') === 'true';
     if (forceRefresh && !allowForcedRefresh('planning')) {
-      sendJson(response, 429, { error: 'Une actualisation récente est déjà en cours. Réessayez dans quelques secondes.' });
+      sendJson(response, 429, { error: 'Une mise à jour récente est déjà en cours. Réessayez dans quelques secondes.' });
       return true;
     }
     const planning = await getAnimeSamaPlanning(forceRefresh);
@@ -633,7 +634,7 @@ const routeRequest = async (request, response) => {
     }
     const forceRefresh = url.searchParams.get('refresh') === 'true';
     if (forceRefresh && !allowForcedRefresh('work')) {
-      sendJson(response, 429, { error: 'Une actualisation récente est déjà en cours. Réessayez dans quelques secondes.' });
+      sendJson(response, 429, { error: 'Une mise à jour récente est déjà en cours. Réessayez dans quelques secondes.' });
       return true;
     }
     const work = await getAnimeSamaWork(sourceUrl, forceRefresh);
@@ -684,7 +685,7 @@ export async function handleAnimeSamaRequest(request, response) {
     return await routeRequest(request, response);
   } catch (error) {
     console.error('[anime-sama-api]', error);
-    if (!response.headersSent) sendJson(response, 502, { error: 'La source Anime-Sama est momentanément indisponible.', detail: error.message });
+    if (!response.headersSent) sendJson(response, 502, { error: 'La source de données est momentanément indisponible.' });
     return true;
   }
 }

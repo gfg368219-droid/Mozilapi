@@ -255,14 +255,22 @@ async function listWorks(url, owner) {
 const endpointDocs = {
   name: 'MozAnim API',
   version: '1',
-  authentication: 'Authorization: Bearer VOTRE_CLE_API ou X-API-Key: VOTRE_CLE_API',
+  basePath: '/api/v1',
+  authentication: 'Authorization: Bearer VOTRE_CLE_API ou X-API-Key: VOTRE_CLE_API pour les endpoints protégés',
+  rateLimit: '120 requêtes par minute et par clé',
+  notes: [
+    'La documentation est publique. Les opérations sur les œuvres nécessitent une clé API.',
+    'Les clés lecture seule ne peuvent pas importer, modifier ou supprimer des œuvres.',
+    'Une clé peut être limitée aux types anime, film, scan et webtoon.'
+  ],
   endpoints: [
-    { method: 'GET', path: '/api/v1/works', scope: 'read', description: 'Recherche dans le catalogue et les œuvres importées. Paramètres : q, kind, page, limit.' },
-    { method: 'GET', path: '/api/v1/works/:slug', scope: 'read', description: 'Fiche, saisons, versions, épisodes et chapitres.' },
-    { method: 'POST', path: '/api/v1/works/import', scope: 'write', description: 'Importe ou met à jour jusqu’à 500 œuvres JSON appartenant à cette clé.' },
-    { method: 'PUT', path: '/api/v1/works/:slug', scope: 'write', description: 'Met à jour une œuvre de cette clé.' },
-    { method: 'DELETE', path: '/api/v1/works/:slug', scope: 'write', description: 'Supprime une œuvre appartenant à cette clé.' },
-    { method: 'GET', path: '/api/anime-sama/planning', scope: 'public', description: 'Planning source des sorties anime, films, scans et webtoons.' }
+    { method: 'GET', path: '/api/health', scope: 'public', auth: 'Aucune', description: 'Vérifie que le service API répond.' },
+    { method: 'GET', path: '/api/docs', scope: 'public', auth: 'Aucune', description: 'Renvoie cette documentation au format JSON.' },
+    { method: 'GET', path: '/api/v1/works', scope: 'read', auth: 'Clé API lecture', description: 'Recherche dans le catalogue et les œuvres importées. Paramètres : q, kind, page, limit.' },
+    { method: 'GET', path: '/api/v1/works/:slug', scope: 'read', auth: 'Clé API lecture', description: 'Renvoie une fiche, ses saisons, épisodes et chapitres.' },
+    { method: 'POST', path: '/api/v1/works/import', scope: 'write', auth: 'Clé API écriture', description: 'Importe ou met à jour jusqu’à 500 œuvres JSON appartenant à cette clé.' },
+    { method: 'PUT', path: '/api/v1/works/:slug', scope: 'write', auth: 'Clé API écriture', description: 'Met à jour une œuvre appartenant à cette clé.' },
+    { method: 'DELETE', path: '/api/v1/works/:slug', scope: 'write', auth: 'Clé API écriture', description: 'Supprime une œuvre appartenant à cette clé.' }
   ]
 };
 
@@ -373,11 +381,6 @@ export async function handleApiRequest(request, response) {
     }
 
     if (pathname === '/api/docs' && request.method === 'GET') {
-      const user = await sessionUser(request);
-      if (!user) {
-        json(response, 401, { error: 'Connectez-vous pour consulter la documentation API.' });
-        return true;
-      }
       json(response, 200, endpointDocs);
       return true;
     }

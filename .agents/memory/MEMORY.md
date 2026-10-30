@@ -1,0 +1,1 @@
+- [MozAnim product direction](mozanim-product-direction.md) — dark/blue visual direction, no upstream branding, public docs, and concise schedule UI.

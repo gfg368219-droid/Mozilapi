@@ -3,10 +3,12 @@ import { createRoot } from 'react-dom/client';
 import {
   ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight,
   AlertCircle, Code2, Film, KeyRound, LogIn, LogOut, Play, RefreshCw, Search, ShieldCheck,
-  CircleHelp, Share2, Tv, UserPlus, X
+  Share2, Tv, UserPlus, X
 } from 'lucide-react';
 import DeveloperPortal from './DeveloperPortal.jsx';
+import PublicApiDocs from './PublicApiDocs.jsx';
 import './styles.css';
+import './theme.css';
 
 const kinds = [
   { id: 'all', label: 'Tout' },
@@ -71,7 +73,6 @@ const episodeName = (version, index) => version?.episodeNames?.[index] || `Épis
 
 function App() {
   const [works, setWorks] = useState([]);
-  const [catalogueUpdatedAt, setCatalogueUpdatedAt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [query, setQuery] = useState('');
@@ -82,7 +83,7 @@ function App() {
   const [planningLoading, setPlanningLoading] = useState(false);
   const [planningError, setPlanningError] = useState('');
   const [planningRetry, setPlanningRetry] = useState(0);
-  const [planningUpdatedAt, setPlanningUpdatedAt] = useState(null);
+  const forcePlanningRefreshRef = useRef(false);
   const [selected, setSelected] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
@@ -90,6 +91,8 @@ function App() {
   const [episodeReader, setEpisodeReader] = useState(null);
   const [user, setUser] = useState(null);
   const [authMode, setAuthMode] = useState('');
+  const [authPending, setAuthPending] = useState(false);
+  const [authError, setAuthError] = useState('');
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
@@ -106,7 +109,6 @@ function App() {
     ]).then(([catalogue, session]) => {
       if (!active) return;
       setWorks(catalogue.items || []);
-      setCatalogueUpdatedAt(catalogue.updatedAt || null);
       setUser(session.user || null);
       setLoading(false);
     }).catch((error) => {
@@ -118,25 +120,45 @@ function App() {
   }, [catalogRetry]);
 
   useEffect(() => {
+    if (page !== 'planning') return undefined;
     let active = true;
-    setPlanningLoading(true);
+    let requestInFlight = false;
+    const loadPlanning = async (initial = false) => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      if (initial && !planning.length) setPlanningLoading(true);
+      const forceRefresh = initial && forcePlanningRefreshRef.current;
+      if (forceRefresh) forcePlanningRefreshRef.current = false;
+      try {
+        const response = await fetch(`/api/anime-sama/planning${forceRefresh ? '?refresh=true' : ''}`, { cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Le planning est indisponible.');
+        if (!active) return;
+        setPlanning(Array.isArray(payload.items) ? payload.items : []);
+        setPlanningError('');
+      } catch (error) {
+        if (!active) return;
+        setPlanningError(error.message || 'Impossible de charger le planning.');
+      } finally {
+        if (active && initial) setPlanningLoading(false);
+        requestInFlight = false;
+      }
+    };
     setPlanningError('');
-    fetch(`/api/anime-sama/planning${planningRetry ? '?refresh=true' : ''}`).then(async (response) => {
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Le planning est indisponible.');
-      return payload;
-    }).then((payload) => {
-      if (!active) return;
-      setPlanning(Array.isArray(payload.items) ? payload.items : []);
-      setPlanningUpdatedAt(payload.updatedAt || null);
-    }).catch((error) => {
-      if (!active) return;
-      setPlanningError(error.message || 'Impossible de charger le planning.');
-    }).finally(() => {
-      if (active) setPlanningLoading(false);
-    });
-    return () => { active = false; };
-  }, [planningRetry]);
+    loadPlanning(true);
+    const refreshTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') loadPlanning(false);
+    }, 60_000);
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') loadPlanning(false);
+    };
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+    };
+  }, [page, planningRetry]);
 
   useEffect(() => {
     const syncHash = () => {
@@ -148,11 +170,6 @@ function App() {
         setEpisodeReader(null);
       } else if (route === 'planning') {
         setPage('planning');
-        setSelected(null);
-        setReader(null);
-        setEpisodeReader(null);
-      } else if (route === 'help') {
-        setPage('help');
         setSelected(null);
         setReader(null);
         setEpisodeReader(null);
@@ -280,7 +297,7 @@ function App() {
       return;
     }
     const host = new URL(episodeUrl).hostname;
-    const readerName = entry.readerName || 'Lecteur Anime-Sama';
+    const readerName = entry.readerName || 'Lecteur principal';
     if (!['anime-sama.to', 'www.anime-sama.to'].includes(host)) {
       setEpisodeReader({
         name: title,
@@ -322,6 +339,8 @@ function App() {
 
   const authRequest = async (event, mode) => {
     event.preventDefault();
+    setAuthPending(true);
+    setAuthError('');
     const form = new FormData(event.currentTarget);
     const body = {
       email: String(form.get('email') || ''),
@@ -339,10 +358,13 @@ function App() {
       if (!response.ok) throw new Error(payload.error || 'Connexion impossible.');
       setUser(payload.user);
       setAuthMode('');
+      setAuthError('');
       setNotice(mode === 'signup' ? 'Compte créé. Vous avez accès à l’espace API.' : 'Vous êtes connecté.');
       if (page === 'api') go('api');
     } catch (error) {
-      setNotice(error.message || 'Une erreur est survenue.');
+      setAuthError(error.message || 'Une erreur est survenue.');
+    } finally {
+      setAuthPending(false);
     }
   };
 
@@ -366,6 +388,16 @@ function App() {
     }
   };
 
+  const openAuth = (mode) => {
+    setAuthError('');
+    setAuthMode(mode);
+  };
+
+  const retryPlanning = () => {
+    forcePlanningRefreshRef.current = true;
+    setPlanningRetry((value) => value + 1);
+  };
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -380,16 +412,15 @@ function App() {
         <nav className="main-nav" aria-label="Navigation">
           <button className={page === 'catalog' || page === 'detail' ? 'active' : ''} onClick={() => go('catalog')}><Film size={15} /> Catalogue</button>
           <button className={page === 'planning' ? 'active' : ''} onClick={() => go('planning')}><CalendarDays size={15} /> Planning</button>
-          <button className={page === 'help' ? 'active' : ''} onClick={() => go('help')}><CircleHelp size={15} /> Aide</button>
-          {user && <button className={page === 'api' ? 'active' : ''} onClick={() => go('api')}><Code2 size={15} /> API</button>}
+          <button className={page === 'api' ? 'active' : ''} onClick={() => go('api')}><Code2 size={15} /> Documentation</button>
         </nav>
         <div className="account-actions">
           {user ? <>
             <span className="account-name"><ShieldCheck size={15} /> {user.name}</span>
             <button className="account-button" onClick={logout}><LogOut size={15} /> Déconnexion</button>
           </> : <>
-            <button className="account-button" onClick={() => setAuthMode('login')}><LogIn size={15} /> Connexion</button>
-            <button className="account-button primary" onClick={() => setAuthMode('signup')}><UserPlus size={15} /> Inscription</button>
+            <button className="account-button" onClick={() => openAuth('login')}><LogIn size={15} /> Connexion</button>
+            <button className="account-button primary" onClick={() => openAuth('signup')}><UserPlus size={15} /> Inscription</button>
           </>}
         </div>
       </header>
@@ -399,16 +430,14 @@ function App() {
       <main>
         {page === 'api' ? user
           ? <DeveloperPortal user={user} onNotice={setNotice} />
-          : <section className="locked-state"><div className="lock-icon"><KeyRound size={24} /></div><span className="eyebrow">ESPACE API PROTÉGÉ</span><h1>Connectez-vous pour continuer</h1><p>La documentation, les clés et les outils API sont réservés aux comptes inscrits.</p><div className="button-row"><button className="button primary" onClick={() => setAuthMode('login')}>Connexion</button><button className="button" onClick={() => setAuthMode('signup')}>Créer un compte</button></div></section>
+          : <PublicApiDocs onCreateKey={() => openAuth('signup')} onLogin={() => openAuth('login')} />
           : page === 'planning'
-            ? <Planning items={planning} loading={planningLoading} error={planningError} updatedAt={planningUpdatedAt} onRetry={() => setPlanningRetry((value) => value + 1)} onOpen={openWork} />
-            : page === 'help'
-              ? <HelpPage onOpenApi={() => user ? go('api') : setAuthMode('signup')} onBrowse={() => go('catalog')} />
+             ? <Planning items={planning} loading={planningLoading} error={planningError} onRetry={retryPlanning} onOpen={openWork} />
           : page === 'detail' && selected
               ? episodeReader
                 ? <AnimeEpisodeReader episode={episodeReader} onBack={() => setEpisodeReader(null)} onSelectStream={(selectedIndex) => setEpisodeReader((current) => current ? { ...current, selectedIndex } : current)} />
                 : reader
-                  ? <ScanReader chapter={reader} work={selected} onBack={() => setReader(null)} />
+                   ? <ScanReader chapter={reader} work={selected} chapters={selected.chapters || []} onOpenChapter={openChapter} onBack={() => setReader(null)} />
                   : <Detail work={selected} loading={detailLoading} error={detailError} onRetry={() => openWork(selected)} onBack={() => go('catalog')} onRead={openChapter} onPlayEpisode={openEpisode} />
             : <Catalog
               works={filtered}
@@ -419,23 +448,21 @@ function App() {
               setQuery={setQuery}
               kind={kind}
               setKind={setKind}
-               updatedAt={catalogueUpdatedAt}
               onOpen={openWork}
-              onOpenApi={() => user ? go('api') : setAuthMode('signup')}
             />}
       </main>
 
       <footer className="footer">
         <div><span className="brand-mark small"><span>M</span></span><strong>MozAnim</strong><span>Animés, films, scans et webtoons.</span></div>
-        <div className="footer-links"><button onClick={() => go('planning')}><CalendarDays size={14} /> Planning</button><button onClick={() => go('help')}><CircleHelp size={14} /> Aide</button><button onClick={() => user ? go('api') : setAuthMode('login')}><Code2 size={14} /> API</button></div>
+        <div className="footer-links"><button onClick={() => go('planning')}><CalendarDays size={14} /> Planning</button><button onClick={() => go('api')}><Code2 size={14} /> Documentation API</button></div>
       </footer>
 
-      {authMode && <AuthModal mode={authMode} setMode={setAuthMode} onSubmit={authRequest} onClose={() => setAuthMode('')} />}
+      {authMode && <AuthModal mode={authMode} setMode={(mode) => { setAuthError(''); setAuthMode(mode); }} onSubmit={authRequest} pending={authPending} error={authError} onClose={() => { setAuthError(''); setAuthMode(''); }} />}
     </div>
   );
 }
 
-function Catalog({ works, loading, error, onRetry, query, setQuery, kind, setKind, updatedAt, onOpen, onOpenApi }) {
+function Catalog({ works, loading, error, onRetry, query, setQuery, kind, setKind, onOpen }) {
   const rows = kind === 'all'
     ? kinds.filter((option) => option.id !== 'all').map((option) => ({ ...option, items: works.filter((work) => (work.kind || 'anime') === option.id) })).filter((row) => row.items.length)
     : [{ id: kind, label: kinds.find((option) => option.id === kind)?.label || 'Catalogue', items: works }];
@@ -461,7 +488,7 @@ function Catalog({ works, loading, error, onRetry, query, setQuery, kind, setKin
 
     <section className="catalog-section">
       <div className="catalog-heading">
-        <div><span className="eyebrow">À PARCOURIR</span><h2>Le catalogue</h2><p>{loading ? 'Chargement…' : `${works.length.toLocaleString('fr-FR')} résultat${works.length > 1 ? 's' : ''}`}{updatedAt && !loading ? ` · Mis à jour ${new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeZone: 'Europe/Paris' }).format(new Date(updatedAt))}` : ''}</p></div>
+         <div><span className="eyebrow">À PARCOURIR</span><h2>Le catalogue</h2><p>{loading ? 'Chargement…' : `${works.length.toLocaleString('fr-FR')} résultat${works.length > 1 ? 's' : ''}`}</p></div>
         <label className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un animé, un webtoon…" /></label>
       </div>
       <div className="filter-row" role="tablist" aria-label="Filtrer par type">
@@ -480,7 +507,7 @@ function Catalog({ works, loading, error, onRetry, query, setQuery, kind, setKin
   </div>;
 }
 
-function Planning({ items, loading, error, updatedAt, onRetry, onOpen }) {
+function Planning({ items, loading, error, onRetry, onOpen }) {
   const today = parisDateKey();
   const grouped = useMemo(() => {
     const groups = new Map();
@@ -497,10 +524,8 @@ function Planning({ items, loading, error, updatedAt, onRetry, onOpen }) {
   }, [items, today]);
   return <div className="page planning-page">
     <section className="page-intro planning-intro">
-      <div><span className="eyebrow"><CalendarDays size={14} /> SORTIES SOURCE</span><h1>Planning</h1><p>Les sorties référencées, avec leur date et leur heure de Paris.</p></div>
-      <button className="button refresh-button" onClick={onRetry}><RefreshCw size={14} /> Actualiser</button>
+      <div><span className="eyebrow"><CalendarDays size={14} /> SORTIES À VENIR</span><h1>Planning</h1></div>
     </section>
-    {updatedAt && !loading && <div className="planning-updated">Données actualisées le {new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Paris' }).format(new Date(updatedAt))} · Europe/Paris</div>}
     {error && <div className="error-panel">{error}<span>Le planning n’a pas pu être chargé depuis sa source.</span><button className="button small" onClick={onRetry}>Réessayer</button></div>}
     {loading ? <div className="planning-skeletons">{Array.from({ length: 5 }, (_, index) => <div className="planning-skeleton" key={index}><i /><span /><b /></div>)}</div>
       : grouped.length ? <div className="planning-days">{grouped.map(({ date, entries }) => {
@@ -515,17 +540,6 @@ function Planning({ items, loading, error, updatedAt, onRetry, onOpen }) {
         </section>;
       })}</div>
       : !error && <div className="empty-state"><CalendarDays size={25} /><h3>Aucune sortie à afficher</h3><p>La source n’a fourni aucune entrée de planning.</p></div>}
-  </div>;
-}
-
-function HelpPage({ onOpenApi, onBrowse }) {
-  return <div className="page help-page">
-    <section className="page-intro"><div><span className="eyebrow"><CircleHelp size={14} /> AIDE MOZANIM</span><h1>À votre rythme.</h1><p>Un accès direct aux fiches, aux lecteurs disponibles et aux outils pour intégrer le catalogue.</p></div></section>
-    <div className="help-grid">
-      <article className="help-panel"><span className="help-index">01 / TROUVER</span><h2>Parcourir le catalogue</h2><p>Recherchez un titre, filtrez par type et ouvrez sa fiche. Les visuels et les informations affichés proviennent des données disponibles.</p><button className="button" onClick={onBrowse}>Voir le catalogue <ArrowRight size={14} /></button></article>
-      <article className="help-panel"><span className="help-index">02 / LIRE</span><h2>Choisir un lecteur</h2><p>Une fiche peut proposer plusieurs saisons, versions ou lecteurs. Les épisodes et chapitres s’ouvrent uniquement lorsqu’une source de lecture est disponible.</p><span className="help-note"><Play size={13} /> Les liens manquants restent signalés comme indisponibles.</span></article>
-      <article className="help-panel help-panel-wide"><span className="help-index">03 / INTÉGRER</span><h2>Utiliser l’API MozAnim</h2><p>Créez un compte pour consulter la documentation, générer une clé et tester les accès. Les clés de lecture et d’écriture sont limitées aux types choisis.</p><button className="button primary" onClick={onOpenApi}><Code2 size={14} /> Ouvrir l’espace API</button></article>
-    </div>
   </div>;
 }
 
@@ -559,6 +573,8 @@ function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode }
     return [key, entry];
   })).values()];
   const genres = Array.isArray(work.genres) ? work.genres : [];
+  const studio = typeof work.studio === 'string' ? work.studio.trim() : '';
+  const showStudio = studio && !['unknown', 'inconnu', 'n/a', 'non renseigné', 'undefined', '-'].includes(studio.toLocaleLowerCase());
   return <div className="page detail-page">
     <button className="back-link" onClick={onBack}><ArrowLeft size={16} /> Retour au catalogue</button>
     <section className="detail-hero">
@@ -574,13 +590,13 @@ function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode }
           <div className="detail-meta">
             {work.year && <span><strong>Année</strong>{work.year}</span>}
             {work.status && <span><strong>État</strong>{work.status}</span>}
-            {work.studio && <span><strong>Studio</strong>{work.studio}</span>}
+            {showStudio && <span><strong>Studio</strong>{studio}</span>}
             {seasons.length > 0 && !scanOrWebtoon && <span><strong>Saisons</strong>{seasons.length}</span>}
             {chapters.length > 0 && <span><strong>Chapitres</strong>{chapters.length}</span>}
           </div>
         </div>
       </div>
-      {loading && <div className="detail-loading"><span className="spinner" /> Actualisation des saisons et épisodes…</div>}
+      {loading && <div className="detail-loading"><span className="spinner" /> Chargement des saisons et épisodes…</div>}
     </section>
     {error && <div className="error-panel inline">{error}<button className="button small" onClick={onRetry}>Réessayer</button></div>}
 
@@ -633,7 +649,7 @@ function ReaderOption({ reader, index, available, onRead, onPlayEpisode }) {
   return <div className={`reader-option ${available ? '' : 'unavailable'}`}>
     <button className="reader-option-head" onClick={() => available && setExpanded((value) => !value)} disabled={!available} aria-expanded={available ? expanded : undefined}>
       <span className="reader-state-dot" />
-      <span className="reader-option-name">{reader.name || `Lecteur ${index + 1}`}</span>
+          <span className="reader-option-name">{reader.name || `Lecteur ${index + 1}`}</span>
       <span className="reader-option-count">{available ? `${episodes.length} ép.` : 'Indisponible'}</span>
       {available && <ChevronDown size={14} className={expanded ? 'rotated' : ''} />}
     </button>
@@ -728,36 +744,71 @@ function AnimeEpisodeReader({ episode, onBack, onSelectStream }) {
   </section>;
 }
 
-function ScanReader({ chapter, work, onBack }) {
+function ScanReader({ chapter, work, chapters, onOpenChapter, onBack }) {
   const pages = (chapter.pages || []).map((page) => typeof page === 'string' ? page : page.url || page.src).map(safeUrl).filter(Boolean);
   const [index, setIndex] = useState(0);
   const [failedPages, setFailedPages] = useState({});
+  const pageRefs = useRef([]);
   useEffect(() => { setIndex(0); }, [chapter]);
-  useEffect(() => { setFailedPages({}); }, [chapter, index]);
+  useEffect(() => { setFailedPages({}); pageRefs.current = []; window.scrollTo({ top: 0, behavior: 'smooth' }); }, [chapter]);
   const continuous = work.kind === 'webtoon';
+  const chapterEntries = chapters.map((entry) => typeof entry === 'string' ? { url: entry } : entry || {});
+  const currentKey = (entry) => `${safeUrl(entry?.url || entry?.sourceUrl)}::${entry?.sequence ?? ''}::${entry?.name || entry?.title || ''}`;
+  const currentChapterIndex = chapterEntries.findIndex((entry) => currentKey(entry) === currentKey(chapter));
+  const selectedChapterIndex = currentChapterIndex >= 0 ? currentChapterIndex : 0;
+  const chooseChapter = (nextIndex) => {
+    if (nextIndex < 0 || nextIndex >= chapterEntries.length || nextIndex === selectedChapterIndex) return;
+    onOpenChapter(chapterEntries[nextIndex]);
+  };
+  useEffect(() => {
+    if (!continuous || !('IntersectionObserver' in window)) return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (visible) setIndex(Number(visible.target.dataset.pageIndex) || 0);
+    }, { rootMargin: '-35% 0px -45% 0px', threshold: [0, 0.2, 0.5, 0.8] });
+    pageRefs.current.filter(Boolean).forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [continuous, chapter, pages.length]);
   return <section className="page reader-page">
-    <div className="reader-toolbar"><button className="back-link" onClick={onBack}><ArrowLeft size={16} /> {work.name}</button><strong>{chapter.name || chapter.title || 'Lecture du chapitre'}</strong><span>{pages.length ? `${index + 1} / ${pages.length}` : ''}</span></div>
+    <div className="reader-toolbar scan-reader-toolbar">
+      <button className="back-link" onClick={onBack}><ArrowLeft size={16} /><span>Retour à la fiche</span></button>
+      <div className="reader-toolbar-title"><span>{work.name}</span><strong>{chapter.name || chapter.title || 'Lecture du chapitre'}</strong></div>
+      <div className="reader-toolbar-actions">
+        {chapterEntries.length > 1 && <button className="reader-chapter-step" disabled={selectedChapterIndex <= 0} onClick={() => chooseChapter(selectedChapterIndex - 1)} aria-label="Chapitre précédent"><ChevronLeft size={17} /></button>}
+        {chapterEntries.length > 1 && <select value={selectedChapterIndex} onChange={(event) => chooseChapter(Number(event.target.value))} aria-label="Choisir un chapitre">
+          {chapterEntries.map((entry, chapterIndex) => <option key={`${currentKey(entry)}-${chapterIndex}`} value={chapterIndex}>{entry.name || entry.title || `Chapitre ${chapterIndex + 1}`}</option>)}
+        </select>}
+        <span className="reader-page-count">{pages.length ? `${String(index + 1).padStart(2, '0')} / ${String(pages.length).padStart(2, '0')}` : ''}</span>
+        {chapterEntries.length > 1 && <button className="reader-chapter-step" disabled={selectedChapterIndex >= chapterEntries.length - 1} onClick={() => chooseChapter(selectedChapterIndex + 1)} aria-label="Chapitre suivant"><ChevronRight size={17} /></button>}
+      </div>
+    </div>
+    <div className="reader-progress" aria-hidden="true"><span style={{ width: `${pages.length ? ((index + 1) / pages.length) * 100 : 0}%` }} /></div>
     {pages.length ? continuous
-      ? <div className="webtoon-canvas">{pages.map((src, pageIndex) => <figure className="webtoon-page" key={`${src}-${pageIndex}`}>{failedPages[pageIndex] ? <div className="page-error"><AlertCircle size={21} /><strong>Image indisponible</strong><span>La page {pageIndex + 1} n’a pas pu être chargée.</span></div> : <img src={src} alt={`Page ${pageIndex + 1}`} loading={pageIndex > 1 ? 'lazy' : 'eager'} onError={() => setFailedPages((old) => ({ ...old, [pageIndex]: true }))} />}<figcaption>Page {String(pageIndex + 1).padStart(2, '0')}</figcaption></figure>)}</div>
+      ? <div className="webtoon-canvas">{pages.map((src, pageIndex) => <figure className="webtoon-page" key={`${src}-${pageIndex}`} data-page-index={pageIndex} ref={(node) => { pageRefs.current[pageIndex] = node; }}>{failedPages[pageIndex] ? <div className="page-error"><AlertCircle size={21} /><strong>Image indisponible</strong><span>La page {pageIndex + 1} n’a pas pu être chargée.</span></div> : <img src={src} alt={`Page ${pageIndex + 1}`} loading={pageIndex > 1 ? 'lazy' : 'eager'} onError={() => setFailedPages((old) => ({ ...old, [pageIndex]: true }))} />}<figcaption>Page {String(pageIndex + 1).padStart(2, '0')}</figcaption></figure>)}</div>
       : <><div className="reader-canvas">{failedPages[index] ? <div className="page-error"><AlertCircle size={21} /><strong>Image indisponible</strong><span>Cette page n’a pas pu être chargée.</span></div> : <img src={pages[index]} alt={`Page ${index + 1}`} onError={() => setFailedPages((old) => ({ ...old, [index]: true }))} />}<div className="reader-controls"><button disabled={index === 0} onClick={() => setIndex((value) => value - 1)}><ChevronLeft size={18} /> Précédente</button><span>Page {index + 1} sur {pages.length}</span><button disabled={index >= pages.length - 1} onClick={() => setIndex((value) => value + 1)}>Suivante <ChevronRight size={18} /></button></div></div><div className="reader-page-list">{pages.map((_, pageIndex) => <button className={index === pageIndex ? 'selected' : ''} key={pageIndex} onClick={() => setIndex(pageIndex)}>{pageIndex + 1}</button>)}</div></>
       : <div className="empty-state"><BookOpen size={25} /><h3>Pages indisponibles</h3><p>Cette fiche ne fournit pas de pages d’images lisibles dans le site.</p></div>}
   </section>;
 }
 
-function AuthModal({ mode, setMode, onSubmit, onClose }) {
+function AuthModal({ mode, setMode, onSubmit, onClose, pending, error }) {
   const signup = mode === 'signup';
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <form className="auth-modal" onSubmit={(event) => onSubmit(event, signup ? 'signup' : 'login')}>
-      <button className="close-button" type="button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
-      <span className="eyebrow"><KeyRound size={14} /> VOTRE COMPTE MOZANIM</span>
-      <h2>{signup ? 'Créer votre compte' : 'Bon retour'}</h2>
-      <p>{signup ? 'Inscrivez-vous pour consulter la documentation et gérer vos clés API.' : 'Connectez-vous pour accéder à votre espace API.'}</p>
-      {signup && <label className="field"><span>Nom affiché</span><input name="name" required maxLength="60" autoComplete="name" placeholder="Votre nom" /></label>}
-      <label className="field"><span>Adresse e-mail</span><input name="email" required type="email" maxLength="254" autoComplete="email" placeholder="vous@exemple.fr" /></label>
-      <label className="field"><span>Mot de passe</span><input name="password" required type="password" minLength="10" autoComplete={signup ? 'new-password' : 'current-password'} placeholder="10 caractères minimum" /></label>
-      <button className="button primary full" type="submit">{signup ? 'Créer mon compte' : 'Se connecter'} <ArrowRight size={15} /></button>
-      <button className="auth-switch" type="button" onClick={() => setMode(signup ? 'login' : 'signup')}>{signup ? 'Déjà inscrit ? Se connecter' : 'Pas de compte ? Inscription'}</button>
-    </form>
+    <div className="auth-modal-shell">
+      <aside className="auth-art"><span className="auth-art-kicker">MOZANIM / ACCÈS</span><strong>À chaque<br />histoire,<br /><em>son monde.</em></strong><span className="auth-art-note">ANIMÉS · FILMS · LECTURES</span></aside>
+      <form className="auth-modal" onSubmit={(event) => onSubmit(event, signup ? 'signup' : 'login')}>
+        <button className="close-button" type="button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
+        <span className="eyebrow"><KeyRound size={14} /> ESPACE PERSONNEL</span>
+        <h2>{signup ? 'Créer un compte' : 'Ravi de vous revoir'}</h2>
+        <p>{signup ? 'Créez votre accès pour gérer vos clés et intégrer le catalogue.' : 'Connectez-vous pour retrouver vos outils développeur.'}</p>
+        {signup && <label className="field"><span>Nom affiché</span><input name="name" required maxLength="60" autoComplete="name" placeholder="Votre nom" /></label>}
+        <label className="field"><span>Adresse e-mail</span><input name="email" required type="email" maxLength="254" autoComplete="email" placeholder="vous@exemple.fr" /></label>
+        <label className="field"><span>Mot de passe</span><input name="password" required type="password" minLength="10" autoComplete={signup ? 'new-password' : 'current-password'} placeholder="10 caractères minimum" /></label>
+        {error && <div className="auth-error" role="alert"><AlertCircle size={16} />{error}</div>}
+        <button className="button primary full" type="submit" disabled={pending}>{pending ? 'Patientez…' : signup ? 'Créer mon compte' : 'Se connecter'} {!pending && <ArrowRight size={15} />}</button>
+        <button className="auth-switch" type="button" onClick={() => setMode(signup ? 'login' : 'signup')} disabled={pending}>{signup ? 'Déjà un compte ? Se connecter' : 'Nouveau ici ? Créer un compte'}</button>
+      </form>
+    </div>
   </div>;
 }
 
