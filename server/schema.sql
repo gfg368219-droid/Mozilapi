@@ -1,5 +1,6 @@
--- MozAnim development database schema.
--- Apply schema changes through Replit's database flow; do not run DDL at app startup.
+-- MozAnim PostgreSQL schema.
+-- Replit-managed DB: use Replit's schema flow. External DATABASE_URL:
+-- npm start applies this idempotent schema before starting the server.
 
 CREATE TABLE IF NOT EXISTS freedex_users (
   id text PRIMARY KEY,

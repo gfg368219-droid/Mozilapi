@@ -24,6 +24,22 @@ const kindLabel = (kind) => ({
   webtoon: 'Webtoon',
   scan: 'Scan'
 }[kind] || 'Animé');
+const CATALOGUE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const WORK_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const mergeCatalogueItems = (previous, incoming) => incoming.map((item) => {
+  const details = previous.find((entry) => entry.id === item.id
+    || (item.slug && entry.slug === item.slug)
+    || (item.sourceUrl && entry.sourceUrl === item.sourceUrl));
+  return details && (details.seasons?.length || details.chapters?.length)
+    ? { ...details, ...item, seasons: details.seasons, chapters: details.chapters }
+    : item;
+});
+const mergeWorkEntry = (items, work, details) => items.map((item) => {
+  const matches = item.id === work.id
+    || (work.slug && item.slug === work.slug)
+    || (work.sourceUrl && item.sourceUrl === work.sourceUrl);
+  return matches ? { ...item, ...details, kind: work.kind || details.kind } : item;
+});
 
 const safeUrl = (value) => {
   try {
@@ -84,6 +100,7 @@ function App() {
   const [planningError, setPlanningError] = useState('');
   const [planningRetry, setPlanningRetry] = useState(0);
   const forcePlanningRefreshRef = useRef(false);
+  const catalogueLastSyncRef = useRef(Date.now());
   const [selected, setSelected] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
@@ -108,7 +125,8 @@ function App() {
       fetch('/api/auth/me', { credentials: 'include' }).then((response) => response.json())
     ]).then(([catalogue, session]) => {
       if (!active) return;
-      setWorks(catalogue.items || []);
+      setWorks((current) => mergeCatalogueItems(current, catalogue.items || []));
+      catalogueLastSyncRef.current = Date.now();
       setUser(session.user || null);
       setLoading(false);
     }).catch((error) => {
@@ -118,6 +136,39 @@ function App() {
     });
     return () => { active = false; };
   }, [catalogRetry]);
+
+  useEffect(() => {
+    if (page !== 'catalog') return undefined;
+    let active = true;
+    let requestInFlight = false;
+    const refreshCatalogue = async () => {
+      if (requestInFlight || document.visibilityState !== 'visible') return;
+      requestInFlight = true;
+      try {
+        const response = await fetch('/api/anime-sama/catalogue', { cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Le catalogue est indisponible.');
+        if (!active) return;
+        setWorks((current) => mergeCatalogueItems(current, Array.isArray(payload.items) ? payload.items : []));
+        catalogueLastSyncRef.current = Date.now();
+        setLoadError('');
+      } catch (error) {
+        if (active) setLoadError(error.message || 'Impossible de mettre à jour le catalogue.');
+      } finally {
+        requestInFlight = false;
+      }
+    };
+    const refreshWhenDue = () => {
+      if (Date.now() - catalogueLastSyncRef.current >= CATALOGUE_REFRESH_INTERVAL_MS) refreshCatalogue();
+    };
+    const refreshTimer = window.setInterval(refreshWhenDue, 60_000);
+    document.addEventListener('visibilitychange', refreshWhenDue);
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener('visibilitychange', refreshWhenDue);
+    };
+  }, [page]);
 
   useEffect(() => {
     if (page !== 'planning') return undefined;
@@ -197,6 +248,42 @@ function App() {
   }, [works]);
 
   useEffect(() => {
+    if (page !== 'detail' || !selected?.id || !selected?.sourceUrl) return undefined;
+    let active = true;
+    let requestInFlight = false;
+    let lastRefreshAt = Date.now();
+    const refreshWork = async () => {
+      if (requestInFlight || document.visibilityState !== 'visible') return;
+      requestInFlight = true;
+      try {
+        const response = await fetch(`/api/anime-sama/work?url=${encodeURIComponent(selected.sourceUrl)}`, { cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'La fiche détaillée ne peut pas être chargée.');
+        if (!active) return;
+        const details = { ...payload, kind: selected.kind || payload.kind };
+        setSelected((current) => current?.id === selected.id ? { ...current, ...details } : current);
+        setWorks((current) => mergeWorkEntry(current, selected, details));
+        setDetailError('');
+        lastRefreshAt = Date.now();
+      } catch (error) {
+        if (active) setDetailError(error.message || 'Impossible de mettre à jour cette fiche.');
+      } finally {
+        requestInFlight = false;
+      }
+    };
+    const refreshWhenDue = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastRefreshAt >= WORK_REFRESH_INTERVAL_MS) refreshWork();
+    };
+    const refreshTimer = window.setInterval(refreshWhenDue, 60_000);
+    document.addEventListener('visibilitychange', refreshWhenDue);
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener('visibilitychange', refreshWhenDue);
+    };
+  }, [page, selected?.id, selected?.sourceUrl]);
+
+  useEffect(() => {
     const handleShortcut = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
@@ -247,7 +334,9 @@ function App() {
       const response = await fetch(`/api/anime-sama/work?url=${encodeURIComponent(work.sourceUrl)}`);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'La fiche détaillée ne peut pas être chargée.');
-      setSelected((current) => current?.id === work.id ? { ...current, ...payload, kind: work.kind || payload.kind } : current);
+      const details = { ...payload, kind: work.kind || payload.kind };
+      setSelected((current) => current?.id === work.id ? { ...current, ...details } : current);
+      setWorks((current) => mergeWorkEntry(current, work, details));
     } catch (error) {
       setDetailError(error.message || 'Impossible de charger les détails.');
     } finally {
@@ -545,13 +634,25 @@ function Planning({ items, loading, error, onRetry, onOpen }) {
 
 function WorkCard({ work, onOpen }) {
   const poster = posterUrl(work.poster || work.cover || work.image);
-  const count = work.seasons?.length || work.chapters?.length || 0;
+  const episodeCount = (work.seasons || []).reduce((total, season) => {
+    const countsByVersion = (season.versions || []).map((version) => {
+      const episodeNames = (version.readers || []).flatMap((reader) => Array.isArray(reader.episodes) ? reader.episodes : [])
+        .map((episode, index) => typeof episode === 'string'
+          ? episode.trim().toLocaleLowerCase() || `episode-${index}`
+          : String(episode.name || episode.title || episode.url || episode.sourceUrl || `episode-${index}`).trim().toLocaleLowerCase());
+      return new Set(episodeNames).size;
+    });
+    return total + Math.max(0, ...countsByVersion);
+  }, 0);
+  const chapterCount = work.chapters?.length || 0;
+  const count = episodeCount || chapterCount || work.seasons?.length || 0;
+  const countLabel = episodeCount ? `épisode${episodeCount > 1 ? 's' : ''}` : chapterCount ? 'chapitres' : 'saisons';
   return <button className="work-card" onClick={() => onOpen(work)}>
     <div className="poster-wrap">{poster ? <PosterImage src={poster} label={work.name || work.title} /> : <div className="poster-placeholder"><BookOpen size={28} /><span>MOZANIM</span></div>}
       <span className="type-badge">{kindLabel(work.kind)}</span>
       <span className="poster-open"><ArrowRight size={17} /></span>
     </div>
-    <div className="work-card-copy"><h3>{work.name || work.title}</h3><div><span>{work.year || work.status || 'Fiche disponible'}</span>{count > 0 && <span>{count} {work.chapters?.length ? 'chapitres' : 'saisons'}</span>}</div></div>
+     <div className="work-card-copy"><h3>{work.name || work.title}</h3><div><span>{work.year || work.status || 'Fiche disponible'}</span>{count > 0 && <span>{count} {countLabel}</span>}</div></div>
   </button>;
 }
 

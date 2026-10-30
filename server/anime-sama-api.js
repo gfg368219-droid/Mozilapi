@@ -1,7 +1,7 @@
 const ANIME_SAMA_BASE_URL = 'https://anime-sama.to';
-const CACHE_TTL_MS = 30 * 60 * 1000;
+const CATALOGUE_CACHE_TTL_MS = 4 * 60 * 1000;
 const PLANNING_CACHE_TTL_MS = 60 * 1000;
-const WORK_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const WORK_CACHE_TTL_MS = 4 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 20_000;
 const PAGE_CONCURRENCY = 5;
 
@@ -199,7 +199,7 @@ async function refreshCatalogue() {
 }
 
 export async function getAnimeSamaCatalogue(forceRefresh = false) {
-  const fresh = catalogueCache && Date.now() - Date.parse(catalogueCache.updatedAt) < CACHE_TTL_MS;
+  const fresh = catalogueCache && Date.now() - Date.parse(catalogueCache.updatedAt) < CATALOGUE_CACHE_TTL_MS;
   if (!forceRefresh && fresh) return catalogueCache;
   if (!refreshPromise) {
     refreshPromise = refreshCatalogue().finally(() => { refreshPromise = null; });
