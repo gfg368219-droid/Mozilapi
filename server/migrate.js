@@ -21,7 +21,7 @@ if (process.env.REPL_ID) {
 
   try {
     await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock($1)', [741205309]);
+    await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [741205309]);
     const schema = await readFile(new URL('./schema.sql', import.meta.url), 'utf8');
     await client.query(schema);
     await client.query('COMMIT');

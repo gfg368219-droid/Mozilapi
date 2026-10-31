@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import DeveloperPortal from './DeveloperPortal.jsx';
 import PublicApiDocs from './PublicApiDocs.jsx';
+import homeBanner from '../attached_assets/generated_images/mozanim-home-banner.jpg';
 import './styles.css';
 import './theme.css';
 
@@ -559,25 +560,20 @@ function Catalog({ works, loading, error, onRetry, query, setQuery, kind, setKin
   const featured = works[0];
   return <div className="page catalog-page">
       <section className={`catalog-hero ${featured ? 'has-feature' : ''}`}>
-      {featured && <button className="hero-image-button" onClick={() => onOpen(featured)} aria-label={`Ouvrir ${featured.name}`}>
-        {posterUrl(featured.poster || featured.cover || featured.image) ? <PosterImage src={posterUrl(featured.poster || featured.cover || featured.image)} label={featured.name} /> : <div className="hero-image-fallback"><span>{kindLabel(featured.kind)}</span><strong>{featured.name}</strong></div>}
-      </button>}
+      <img className="catalog-hero-background" src={homeBanner} alt="" />
       <div className="hero-copy">
-          <span className="eyebrow"><span className="live-dot" /> LE CATALOGUE MOZANIM</span>
           <h1>{featured ? featured.name : 'Animés, scans et webtoons.'}</h1>
           <p>{featured?.description || 'Films, animés et lectures réunis dans un catalogue pensé pour trouver directement une fiche, un épisode ou un chapitre.'}</p>
           <div className="hero-actions">
             {featured && <button className="button primary" onClick={() => onOpen(featured)}><Play size={14} /> Ouvrir la fiche</button>}
             <button className="button hero-secondary" onClick={() => document.querySelector('.catalog-section')?.scrollIntoView({ behavior: 'smooth' })}>Explorer le catalogue <ArrowRight size={15} /></button>
           </div>
-          {featured && <div className="hero-tags"><span>{kindLabel(featured.kind)}</span>{featured.year && <span>{featured.year}</span>}{featured.status && <span>{featured.status}</span>}</div>}
       </div>
-      <div className="hero-count"><span>01</span><i />{String(Math.max(1, works.length)).padStart(2, '0')}</div>
     </section>
 
     <section className="catalog-section">
       <div className="catalog-heading">
-         <div><span className="eyebrow">À PARCOURIR</span><h2>Le catalogue</h2><p>{loading ? 'Chargement…' : `${works.length.toLocaleString('fr-FR')} résultat${works.length > 1 ? 's' : ''}`}</p></div>
+         <div><h2>Le catalogue</h2><p>{loading ? 'Chargement…' : `${works.length.toLocaleString('fr-FR')} résultat${works.length > 1 ? 's' : ''}`}</p></div>
         <label className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un animé, un webtoon…" /></label>
       </div>
       <div className="filter-row" role="tablist" aria-label="Filtrer par type">
@@ -587,7 +583,7 @@ function Catalog({ works, loading, error, onRetry, query, setQuery, kind, setKin
        {loading ? <div className="loading-grid">{Array.from({ length: 8 }, (_, i) => <div className="skeleton" key={i} />)}</div>
          : works.length ? <>
            {rows.map((row) => <section className="release-row" key={row.id}>
-             <div className="release-row-heading"><div><span className="eyebrow">MOZANIM / {row.id.toUpperCase()}</span><h3>{row.label}</h3><span className="release-row-count">{row.items.length} œuvre{row.items.length > 1 ? 's' : ''}</span></div><span className="release-row-rule" /></div>
+              <div className="release-row-heading"><div><h3>{row.label}</h3><span className="release-row-count">{row.items.length} œuvre{row.items.length > 1 ? 's' : ''}</span></div><span className="release-row-rule" /></div>
              <div className="work-grid">{row.items.map((work) => <WorkCard key={work.id || work.slug} work={work} onOpen={onOpen} />)}</div>
            </section>)}
          </>
@@ -635,21 +631,17 @@ function Planning({ items, loading, error, onRetry, onOpen }) {
 function WorkCard({ work, onOpen }) {
   const poster = posterUrl(work.poster || work.cover || work.image);
   const episodeCount = (work.seasons || []).reduce((total, season) => {
-    const countsByVersion = (season.versions || []).map((version) => {
-      const episodeNames = (version.readers || []).flatMap((reader) => Array.isArray(reader.episodes) ? reader.episodes : [])
-        .map((episode, index) => typeof episode === 'string'
-          ? episode.trim().toLocaleLowerCase() || `episode-${index}`
-          : String(episode.name || episode.title || episode.url || episode.sourceUrl || `episode-${index}`).trim().toLocaleLowerCase());
-      return new Set(episodeNames).size;
-    });
+    const countsByVersion = (season.versions || []).map((version) => Math.max(
+      0,
+      ...(version.readers || []).map((reader) => Array.isArray(reader.episodes) ? reader.episodes.length : 0)
+    ));
     return total + Math.max(0, ...countsByVersion);
   }, 0);
   const chapterCount = work.chapters?.length || 0;
   const count = episodeCount || chapterCount || work.seasons?.length || 0;
   const countLabel = episodeCount ? `épisode${episodeCount > 1 ? 's' : ''}` : chapterCount ? 'chapitres' : 'saisons';
   return <button className="work-card" onClick={() => onOpen(work)}>
-    <div className="poster-wrap">{poster ? <PosterImage src={poster} label={work.name || work.title} /> : <div className="poster-placeholder"><BookOpen size={28} /><span>MOZANIM</span></div>}
-      <span className="type-badge">{kindLabel(work.kind)}</span>
+    <div className="poster-wrap">{poster ? <PosterImage src={poster} label={work.name || work.title} /> : <div className="poster-placeholder"><BookOpen size={28} /></div>}
       <span className="poster-open"><ArrowRight size={17} /></span>
     </div>
      <div className="work-card-copy"><h3>{work.name || work.title}</h3><div><span>{work.year || work.status || 'Fiche disponible'}</span>{count > 0 && <span>{count} {countLabel}</span>}</div></div>
@@ -684,7 +676,6 @@ function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode }
       <div className="detail-main">
         <div className="detail-cover">{poster ? <PosterImage src={poster} label={work.name || work.title} /> : <BookOpen size={40} />}</div>
         <div className="detail-copy">
-          <span className="type-badge large">{kindLabel(work.kind)}</span>
           <h1>{work.name || work.title}</h1>
           <div className="tag-row">{genres.map((genre) => <span key={genre}>{genre}</span>)}</div>
           <p>{work.description || work.synopsis || 'Aucune description disponible pour cette fiche.'}</p>
@@ -896,7 +887,7 @@ function AuthModal({ mode, setMode, onSubmit, onClose, pending, error }) {
   const signup = mode === 'signup';
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <div className="auth-modal-shell">
-      <aside className="auth-art"><span className="auth-art-kicker">MOZANIM / ACCÈS</span><strong>À chaque<br />histoire,<br /><em>son monde.</em></strong><span className="auth-art-note">ANIMÉS · FILMS · LECTURES</span></aside>
+      <aside className="auth-art"><strong>À chaque<br />histoire,<br /><em>son monde.</em></strong><span className="auth-art-note">ANIMÉS · FILMS · LECTURES</span></aside>
       <form className="auth-modal" onSubmit={(event) => onSubmit(event, signup ? 'signup' : 'login')}>
         <button className="close-button" type="button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
         <span className="eyebrow"><KeyRound size={14} /> ESPACE PERSONNEL</span>
