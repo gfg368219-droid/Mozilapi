@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Pause,
-  AlertCircle, Code2, Film, KeyRound, LogIn, LogOut, Play, RefreshCw, Search, ShieldCheck,
+  AlertCircle, Code2, Film, LogIn, LogOut, Play, RefreshCw, Search, ShieldCheck,
   Share2, Tv, UserPlus, X
 } from 'lucide-react';
 import DeveloperPortal from './DeveloperPortal.jsx';
@@ -927,7 +927,6 @@ function AuthModal({ mode, setMode, onSubmit, onClose, pending, error }) {
       <aside className="auth-art"><strong>À chaque<br />histoire,<br /><em>son monde.</em></strong><span className="auth-art-note">ANIMÉS · FILMS · LECTURES</span></aside>
       <form className="auth-modal" onSubmit={(event) => onSubmit(event, signup ? 'signup' : 'login')}>
         <button className="close-button" type="button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
-        <span className="eyebrow"><KeyRound size={14} /> ESPACE PERSONNEL</span>
         <h2>{signup ? 'Créer un compte' : 'Ravi de vous revoir'}</h2>
         <p>{signup ? 'Créez votre accès pour gérer vos clés et intégrer le catalogue.' : 'Connectez-vous pour retrouver vos outils développeur.'}</p>
         {signup && <label className="field"><span>Nom affiché</span><input name="name" required maxLength="60" autoComplete="name" placeholder="Votre nom" /></label>}
