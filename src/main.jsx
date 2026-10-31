@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight,
+  ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Pause,
   AlertCircle, Code2, Film, KeyRound, LogIn, LogOut, Play, RefreshCw, Search, ShieldCheck,
   Share2, Tv, UserPlus, X
 } from 'lucide-react';
 import DeveloperPortal from './DeveloperPortal.jsx';
 import PublicApiDocs from './PublicApiDocs.jsx';
-import homeBanner from '../attached_assets/generated_images/mozanim-home-banner.jpg';
 import './styles.css';
 import './theme.css';
 
@@ -492,7 +491,7 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <button className="brand" onClick={() => go('catalog')} aria-label="Accueil">
-          <span className="brand-mark"><span>M</span></span><span>MOZ<span className="brand-light">ANIM</span></span>
+          <span className="brand-mark"><img src="/mozanim-icon.svg" alt="" /></span><span>MOZ<span className="brand-light">ANIM</span></span>
         </button>
         <div className="header-social" aria-label="MozAnim">
           <button className="header-social-button" onClick={shareSite} aria-label="Partager MozAnim" title="Partager MozAnim"><Share2 size={14} /></button>
@@ -543,7 +542,7 @@ function App() {
       </main>
 
       <footer className="footer">
-        <div><span className="brand-mark small"><span>M</span></span><strong>MozAnim</strong><span>Animés, films, scans et webtoons.</span></div>
+        <div><span className="brand-mark small"><img src="/mozanim-icon.svg" alt="" /></span><strong>MozAnim</strong><span>Animés, films, scans et webtoons.</span></div>
         <div className="footer-links"><button onClick={() => go('planning')}><CalendarDays size={14} /> Planning</button><button onClick={() => go('api')}><Code2 size={14} /> Documentation API</button></div>
       </footer>
 
@@ -557,10 +556,29 @@ function Catalog({ works, loading, error, onRetry, query, setQuery, kind, setKin
     ? kinds.filter((option) => option.id !== 'all').map((option) => ({ ...option, items: works.filter((work) => (work.kind || 'anime') === option.id) })).filter((row) => row.items.length)
     : [{ id: kind, label: kinds.find((option) => option.id === kind)?.label || 'Catalogue', items: works }];
 
-  const featured = works[0];
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [autoRotate, setAutoRotate] = useState(true);
+  const featuredItems = useMemo(() => {
+    const candidates = kind === 'all' ? works.filter((work) => (work.kind || 'anime') === 'anime') : works;
+    const withPosters = candidates.filter((work) => posterUrl(work.poster || work.cover || work.image));
+    return (withPosters.length ? withPosters : candidates).slice(0, 12);
+  }, [works, kind]);
+  useEffect(() => {
+    if (!autoRotate || featuredItems.length < 2) return undefined;
+    const timer = window.setInterval(() => {
+      setActiveSlide((current) => (current + 1) % featuredItems.length);
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [autoRotate, featuredItems.length]);
+  const featured = featuredItems.length ? featuredItems[activeSlide % featuredItems.length] : works[0];
+  const featuredPoster = featured ? posterUrl(featured.poster || featured.cover || featured.image) : '';
+  const moveSlide = (offset) => {
+    if (featuredItems.length < 2) return;
+    setActiveSlide((current) => (current + offset + featuredItems.length) % featuredItems.length);
+  };
   return <div className="page catalog-page">
       <section className={`catalog-hero ${featured ? 'has-feature' : ''}`}>
-      <img className="catalog-hero-background" src={homeBanner} alt="" />
+      {featuredPoster && <img key={featured.id || featured.slug} className="catalog-hero-background" src={featuredPoster} alt="" loading="eager" onError={(event) => { event.currentTarget.style.visibility = 'hidden'; }} />}
       <div className="hero-copy">
           <h1>{featured ? featured.name : 'Animés, scans et webtoons.'}</h1>
           <p>{featured?.description || 'Films, animés et lectures réunis dans un catalogue pensé pour trouver directement une fiche, un épisode ou un chapitre.'}</p>
@@ -569,6 +587,13 @@ function Catalog({ works, loading, error, onRetry, query, setQuery, kind, setKin
             <button className="button hero-secondary" onClick={() => document.querySelector('.catalog-section')?.scrollIntoView({ behavior: 'smooth' })}>Explorer le catalogue <ArrowRight size={15} /></button>
           </div>
       </div>
+      {featuredItems.length > 1 && <div className="hero-carousel-controls" role="group" aria-label="Affiches à la une">
+        <button type="button" aria-label="Anime précédent" title="Anime précédent" onClick={() => moveSlide(-1)}><ChevronLeft size={16} /></button>
+        <button type="button" aria-label={autoRotate ? 'Mettre en pause le carrousel' : 'Relancer le carrousel'} aria-pressed={!autoRotate} title={autoRotate ? 'Mettre en pause' : 'Relancer'} onClick={() => setAutoRotate((value) => !value)}>
+          {autoRotate ? <Pause size={14} /> : <Play size={14} />}
+        </button>
+        <button type="button" aria-label="Anime suivant" title="Anime suivant" onClick={() => moveSlide(1)}><ChevronRight size={16} /></button>
+      </div>}
     </section>
 
     <section className="catalog-section">
