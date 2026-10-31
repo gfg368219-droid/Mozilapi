@@ -26,6 +26,20 @@ const kindLabel = (kind) => ({
 }[kind] || 'Animé');
 const CATALOGUE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const WORK_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const readApiJson = async (response, fallbackMessage) => {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    throw new Error(`Le serveur a renvoyé une réponse non JSON (HTTP ${response.status}). Vérifiez la configuration de l’API Vercel.`);
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error(`Le serveur a renvoyé un JSON invalide (HTTP ${response.status}).`);
+  }
+  if (!response.ok) throw new Error(payload.error || fallbackMessage);
+  return payload;
+};
 const mergeCatalogueItems = (previous, incoming) => incoming.map((item) => {
   const details = previous.find((entry) => entry.id === item.id
     || (item.slug && entry.slug === item.slug)
@@ -117,12 +131,8 @@ function App() {
     setLoading(true);
     setLoadError('');
     Promise.all([
-      fetch('/api/anime-sama/catalogue').then(async (response) => {
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || 'Le catalogue est indisponible.');
-        return payload;
-      }),
-      fetch('/api/auth/me', { credentials: 'include' }).then((response) => response.json())
+      fetch('/api/anime-sama/catalogue').then((response) => readApiJson(response, 'Le catalogue est indisponible.')),
+      fetch('/api/auth/me', { credentials: 'include' }).then((response) => readApiJson(response, 'La session ne peut pas être vérifiée.'))
     ]).then(([catalogue, session]) => {
       if (!active) return;
       setWorks((current) => mergeCatalogueItems(current, catalogue.items || []));
@@ -146,8 +156,7 @@ function App() {
       requestInFlight = true;
       try {
         const response = await fetch('/api/anime-sama/catalogue', { cache: 'no-store' });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || 'Le catalogue est indisponible.');
+        const payload = await readApiJson(response, 'Le catalogue est indisponible.');
         if (!active) return;
         setWorks((current) => mergeCatalogueItems(current, Array.isArray(payload.items) ? payload.items : []));
         catalogueLastSyncRef.current = Date.now();
