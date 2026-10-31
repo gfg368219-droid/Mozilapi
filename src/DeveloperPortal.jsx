@@ -135,7 +135,7 @@ export default function DeveloperPortal({ user, onNotice }) {
   };
 
   return <div className="page api-page">
-    <section className="api-heading"><span className="eyebrow"><Code2 size={14} /> ESPACE DÉVELOPPEUR</span><h1>API MozAnim</h1><p>Bonjour {user.name}. Une porte d’entrée claire vers le catalogue, les saisons et la lecture.</p></section>
+    <section className="api-heading"><h1>API MozAnim</h1><p>Bonjour {user.name}. Une porte d’entrée claire vers le catalogue, les saisons et la lecture.</p></section>
     <div className="api-notice"><ShieldCheckIcon /> Les clés sont personnelles et ne sont affichées qu’une seule fois. Conservez-les dans votre environnement serveur.</div>
     <div className="api-grid">
       <section className="api-card"><div className="api-card-title"><KeyRound size={19} /><div><h2>Créer une clé</h2><p>Chaque clé appartient à votre compte.</p></div></div>
