@@ -631,10 +631,13 @@ function Planning({ items, loading, error, onRetry, onOpen }) {
 function WorkCard({ work, onOpen }) {
   const poster = posterUrl(work.poster || work.cover || work.image);
   const episodeCount = (work.seasons || []).reduce((total, season) => {
-    const countsByVersion = (season.versions || []).map((version) => Math.max(
-      0,
-      ...(version.readers || []).map((reader) => Array.isArray(reader.episodes) ? reader.episodes.length : 0)
-    ));
+    const countsByVersion = (season.versions || []).map((version) => {
+      const episodeNames = (version.readers || []).flatMap((reader) => Array.isArray(reader.episodes) ? reader.episodes : [])
+        .map((episode, index) => typeof episode === 'string'
+          ? episode.trim().toLocaleLowerCase() || `episode-${index}`
+          : String(episode.name || episode.title || episode.url || episode.sourceUrl || `episode-${index}`).trim().toLocaleLowerCase());
+      return new Set(episodeNames).size;
+    });
     return total + Math.max(0, ...countsByVersion);
   }, 0);
   const chapterCount = work.chapters?.length || 0;
