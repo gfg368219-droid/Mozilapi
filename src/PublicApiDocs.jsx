@@ -30,7 +30,6 @@ export default function PublicApiDocs({ onCreateKey, onLogin }) {
   return <div className="page api-page public-api-page">
     <section className="public-api-hero">
       <div className="api-heading">
-        <span className="eyebrow"><Code2 size={14} /> API MOZANIM / DOCUMENTATION PUBLIQUE</span>
         <h1>Le catalogue,<br /><em>dans vos projets.</em></h1>
         <p>Parcourez les œuvres avec une clé API. La documentation est ouverte à tous; les clés restent protégées et limitées aux droits choisis.</p>
         <div className="public-api-actions">
