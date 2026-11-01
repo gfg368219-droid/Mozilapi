@@ -1,14 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Pause,
+  ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Pause,
   AlertCircle, Code2, Film, LogIn, LogOut, Play, RefreshCw, Search, ShieldCheck,
   Share2, Tv, UserPlus, X
 } from 'lucide-react';
 import DeveloperPortal from './DeveloperPortal.jsx';
 import PublicApiDocs from './PublicApiDocs.jsx';
+import AdminPanel from './AdminPanel.jsx';
+import { approvedWatchLink } from '../shared/official-links.js';
 import './styles.css';
 import './theme.css';
+import './admin.css';
 
 const kinds = [
   { id: 'all', label: 'Tout' },
@@ -132,10 +135,14 @@ function App() {
     setLoadError('');
     Promise.all([
       fetch('/api/anime-sama/catalogue').then((response) => readApiJson(response, 'Le catalogue est indisponible.')),
+      fetch('/api/films/catalogue').then((response) => readApiJson(response, 'Les films importés sont indisponibles.')),
       fetch('/api/auth/me', { credentials: 'include' }).then((response) => readApiJson(response, 'La session ne peut pas être vérifiée.'))
-    ]).then(([catalogue, session]) => {
+    ]).then(([catalogue, adminFilms, session]) => {
       if (!active) return;
-      setWorks((current) => mergeCatalogueItems(current, catalogue.items || []));
+      setWorks((current) => mergeCatalogueItems(current, [
+        ...(Array.isArray(catalogue.items) ? catalogue.items : []),
+        ...(Array.isArray(adminFilms.items) ? adminFilms.items : [])
+      ]));
       catalogueLastSyncRef.current = Date.now();
       setUser(session.user || null);
       setLoading(false);
@@ -155,10 +162,19 @@ function App() {
       if (requestInFlight || document.visibilityState !== 'visible') return;
       requestInFlight = true;
       try {
-        const response = await fetch('/api/anime-sama/catalogue', { cache: 'no-store' });
-        const payload = await readApiJson(response, 'Le catalogue est indisponible.');
+        const [catalogueResponse, filmsResponse] = await Promise.all([
+          fetch('/api/anime-sama/catalogue', { cache: 'no-store' }),
+          fetch('/api/films/catalogue', { cache: 'no-store' })
+        ]);
+        const [catalogue, adminFilms] = await Promise.all([
+          readApiJson(catalogueResponse, 'Le catalogue est indisponible.'),
+          readApiJson(filmsResponse, 'Les films importés sont indisponibles.')
+        ]);
         if (!active) return;
-        setWorks((current) => mergeCatalogueItems(current, Array.isArray(payload.items) ? payload.items : []));
+        setWorks((current) => mergeCatalogueItems(current, [
+          ...(Array.isArray(catalogue.items) ? catalogue.items : []),
+          ...(Array.isArray(adminFilms.items) ? adminFilms.items : [])
+        ]));
         catalogueLastSyncRef.current = Date.now();
         setLoadError('');
       } catch (error) {
@@ -230,6 +246,11 @@ function App() {
         setEpisodeReader(null);
       } else if (route === 'planning') {
         setPage('planning');
+        setSelected(null);
+        setReader(null);
+        setEpisodeReader(null);
+      } else if (route === 'admin') {
+        setPage('admin');
         setSelected(null);
         setReader(null);
         setEpisodeReader(null);
@@ -511,6 +532,7 @@ function App() {
           <button className={page === 'catalog' || page === 'detail' ? 'active' : ''} onClick={() => go('catalog')}><Film size={15} /> Catalogue</button>
           <button className={page === 'planning' ? 'active' : ''} onClick={() => go('planning')}><CalendarDays size={15} /> Planning</button>
           <button className={page === 'api' ? 'active' : ''} onClick={() => go('api')}><Code2 size={15} /> Documentation</button>
+          {user?.role === 'admin' && <button className={page === 'admin' ? 'active' : ''} onClick={() => go('admin')}><ShieldCheck size={15} /> Administration</button>}
         </nav>
         <div className="account-actions">
           {user ? <>
@@ -526,7 +548,10 @@ function App() {
       {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Fermer"><X size={15} /></button></div>}
 
       <main>
-        {page === 'api' ? user
+        {page === 'admin' ? user?.role === 'admin'
+          ? <AdminPanel onImported={() => setCatalogRetry((value) => value + 1)} />
+          : <section className="page admin-access-denied"><span className="eyebrow"><ShieldCheck size={14} /> ACCÈS ADMINISTRATEUR</span><h1>Connexion requise</h1><p>Connectez-vous avec un compte administrateur pour gérer les films.</p><button className="button primary" onClick={() => openAuth('login')}>Se connecter</button></section>
+          : page === 'api' ? user
           ? <DeveloperPortal user={user} onNotice={setNotice} />
           : <PublicApiDocs onCreateKey={() => openAuth('signup')} onLogin={() => openAuth('login')} />
           : page === 'planning'
@@ -703,6 +728,9 @@ function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode }
     return [key, entry];
   })).values()];
   const genres = Array.isArray(work.genres) ? work.genres : [];
+  const officialLinks = (Array.isArray(work.officialLinks) ? work.officialLinks : [])
+    .map((link) => ({ ...link, url: approvedWatchLink(link.url)?.url }))
+    .filter((link) => link.url);
   const studio = typeof work.studio === 'string' ? work.studio.trim() : '';
   const showStudio = studio && !['unknown', 'inconnu', 'n/a', 'non renseigné', 'undefined', '-'].includes(studio.toLocaleLowerCase());
   return <div className="page detail-page">
@@ -729,6 +757,11 @@ function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode }
     </section>
     {error && <div className="error-panel inline">{error}<button className="button small" onClick={onRetry}>Réessayer</button></div>}
 
+    {officialLinks.length > 0 && <section className="detail-section">
+      <div className="section-heading"><div><span className="eyebrow">LIENS AUTORISÉS</span><h2>Où regarder</h2></div><span className="section-count">{officialLinks.length} plateforme{officialLinks.length > 1 ? 's' : ''}</span></div>
+      <div className="official-watch-links">{officialLinks.map((link) => <a key={link.url} className="button small" href={link.url} target="_blank" rel="noopener noreferrer">{link.provider || 'Ouvrir la plateforme'} <ExternalLink size={14} /></a>)}</div>
+    </section>}
+
     {seasons.length > 0 && !scanOrWebtoon && <section className="detail-section">
       <div className="section-heading"><div><span className="eyebrow">DÉTAILS</span><h2>Saisons et épisodes</h2></div><span className="section-count">{seasons.length} saisons</span></div>
        <div className="season-list">{seasons.map((season, index) => <SeasonCard key={season.id || `${season.name}-${index}`} season={season} onRead={onRead} onPlayEpisode={onPlayEpisode} />)}</div>
@@ -750,7 +783,7 @@ function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode }
       })}</div>
     </section>}
 
-    {!seasons.length && !chapters.length && !loading && <div className="empty-detail"><Tv size={23} /><h2>Pas encore de détails</h2><p>Cette fiche ne contient pas encore de saisons, épisodes ou chapitres.</p></div>}
+    {!seasons.length && !chapters.length && !officialLinks.length && !loading && <div className="empty-detail"><Tv size={23} /><h2>Pas encore de détails</h2><p>Cette fiche ne contient pas encore de saisons, épisodes ou chapitres.</p></div>}
   </div>;
 }
 

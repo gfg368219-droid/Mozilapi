@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { getPool } from './db.js';
 import { getAnimeSamaCatalogue, getAnimeSamaWork } from './anime-sama-api.js';
+import { parseFilmImport } from './admin-films.js';
 
 const validKinds = new Set(['anime', 'film', 'webtoon', 'scan']);
 const allKinds = [...validKinds];
@@ -9,6 +10,7 @@ const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 const creationLimit = new Map();
 const loginLimit = new Map();
 const requestLimit = new Map();
+const adminImportLimit = new Map();
 
 const json = (response, status, payload, apiHeaders = false) => {
   response.statusCode = status;
@@ -90,7 +92,7 @@ async function sessionUser(request) {
   const token = cookieValue(request, SESSION_COOKIE);
   if (!/^[a-f0-9]{64}$/.test(token)) return null;
   const result = await getPool().query(
-    `SELECT users.id, users.email, users.display_name, users.created_at
+    `SELECT users.id, users.email, users.display_name, users.role, users.created_at
      FROM freedex_sessions sessions
      JOIN freedex_users users ON users.id = sessions.user_id
      WHERE sessions.token_hash = $1 AND sessions.expires_at > NOW()
@@ -98,6 +100,19 @@ async function sessionUser(request) {
     [hash(token)]
   );
   return result.rows[0] || null;
+}
+
+async function requireAdmin(request, response) {
+  const user = await sessionUser(request);
+  if (!user) {
+    json(response, 401, { error: 'Connectez-vous avec un compte administrateur.' });
+    return null;
+  }
+  if (user.role !== 'admin') {
+    json(response, 403, { error: 'Cette page est réservée aux administrateurs.' });
+    return null;
+  }
+  return user;
 }
 
 async function startSession(request, response, userId) {
@@ -295,7 +310,7 @@ export async function handleApiRequest(request, response) {
 
     if (pathname === '/api/auth/me' && request.method === 'GET') {
       const user = await sessionUser(request);
-      json(response, 200, { user: user ? { id: user.id, email: user.email, name: user.display_name } : null });
+      json(response, 200, { user: user ? { id: user.id, email: user.email, name: user.display_name, role: user.role } : null });
       return true;
     }
 
@@ -339,13 +354,13 @@ export async function handleApiRequest(request, response) {
         const salt = randomBytes(16).toString('hex');
         const passwordHash = scryptSync(password, salt, 64).toString('hex');
         const created = await pool.query(
-          'INSERT INTO freedex_users (id, email, display_name, password_hash, password_salt) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, display_name',
+          'INSERT INTO freedex_users (id, email, display_name, password_hash, password_salt) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, display_name, role',
           [randomUUID(), email, name, passwordHash, salt]
         );
         user = created.rows[0];
       } else {
         const found = await pool.query(
-          'SELECT id, email, display_name, password_hash, password_salt FROM freedex_users WHERE email = $1 LIMIT 1',
+          'SELECT id, email, display_name, role, password_hash, password_salt FROM freedex_users WHERE email = $1 LIMIT 1',
           [email]
         );
         const candidate = found.rows[0];
@@ -362,7 +377,7 @@ export async function handleApiRequest(request, response) {
         user = candidate;
       }
       await startSession(request, response, user.id);
-      json(response, isSignup ? 201 : 200, { user: { id: user.id, email: user.email, name: user.display_name } });
+      json(response, isSignup ? 201 : 200, { user: { id: user.id, email: user.email, name: user.display_name, role: user.role || 'user' } });
       return true;
     }
 
@@ -377,6 +392,121 @@ export async function handleApiRequest(request, response) {
       }
       clearSessionCookie(request, response);
       json(response, 200, { loggedOut: true });
+      return true;
+    }
+
+    if (pathname === '/api/films/catalogue' && request.method === 'GET') {
+      const result = await getPool().query(
+        `SELECT tmdb_id, title, release_year, description, poster_url, official_links, updated_at
+         FROM freedex_admin_films
+         WHERE jsonb_typeof(official_links) = 'array' AND jsonb_array_length(official_links) > 0
+         ORDER BY updated_at DESC`
+      );
+      const items = result.rows.map((film) => ({
+        id: `admin-film-${film.tmdb_id}`,
+        slug: `film-${film.tmdb_id}`,
+        kind: 'film',
+        name: film.title,
+        year: film.release_year,
+        description: film.description,
+        poster: film.poster_url,
+        officialLinks: film.official_links,
+        sourceUrl: null,
+        isAdminFilm: true,
+        updatedAt: film.updated_at
+      }));
+      json(response, 200, { count: items.length, items });
+      return true;
+    }
+
+    if (pathname === '/api/admin/films' && request.method === 'GET') {
+      const user = await requireAdmin(request, response);
+      if (!user) return true;
+      const result = await getPool().query(
+        `SELECT tmdb_id, title, release_year, description, poster_url, official_links, updated_at
+         FROM freedex_admin_films ORDER BY updated_at DESC LIMIT 200`
+      );
+      json(response, 200, {
+        films: result.rows.map((film) => ({
+          tmdbId: String(film.tmdb_id),
+          title: film.title,
+          year: film.release_year,
+          description: film.description,
+          poster: film.poster_url,
+          officialLinks: film.official_links,
+          updatedAt: film.updated_at
+        }))
+      });
+      return true;
+    }
+
+    if (pathname === '/api/admin/films/import' && request.method === 'POST') {
+      if (rejectCrossSiteMutation(request)) {
+        json(response, 403, { error: 'Requête non autorisée.' });
+        return true;
+      }
+      const user = await requireAdmin(request, response);
+      if (!user) return true;
+      if (isRateLimited(adminImportLimit, user.id, 10, 60 * 60 * 1000)) {
+        json(response, 429, { error: 'Limite d’import atteinte. Réessayez plus tard.' });
+        return true;
+      }
+      const body = await readJson(request, 1_100_000);
+      if (body.rightsConfirmed !== true) {
+        json(response, 400, { error: 'Confirmez que les liens ont une diffusion autorisée.' });
+        return true;
+      }
+      const parsed = parseFilmImport(body.text);
+      if (!parsed.films.length) {
+        json(response, 400, {
+          error: 'Aucune fiche importée : ajoutez au moins un champ « Lien officiel: » vers une plateforme autorisée.',
+          ignoredPlayerLinks: parsed.ignoredPlayerLinks,
+          ignoredUnapprovedLinks: parsed.ignoredUnapprovedLinks,
+          rejected: parsed.rejected
+        });
+        return true;
+      }
+
+      const client = await getPool().connect();
+      try {
+        await client.query('BEGIN');
+        for (const film of parsed.films) {
+          await client.query(
+            `INSERT INTO freedex_admin_films
+               (tmdb_id, title, release_year, description, poster_url, official_links, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+             ON CONFLICT (tmdb_id) DO UPDATE SET
+               title = EXCLUDED.title,
+               release_year = EXCLUDED.release_year,
+               description = EXCLUDED.description,
+               poster_url = EXCLUDED.poster_url,
+               official_links = EXCLUDED.official_links,
+               created_by = EXCLUDED.created_by,
+               updated_at = NOW()`,
+            [
+              film.tmdbId,
+              film.title,
+              film.year,
+              film.description,
+              film.poster || null,
+              JSON.stringify(film.officialLinks),
+              user.id
+            ]
+          );
+        }
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+      json(response, 200, {
+        imported: parsed.films.length,
+        ignoredPlayerLinks: parsed.ignoredPlayerLinks,
+        ignoredUnapprovedLinks: parsed.ignoredUnapprovedLinks,
+        rejected: parsed.rejected
+      });
       return true;
     }
 

@@ -8,8 +8,12 @@ CREATE TABLE IF NOT EXISTS freedex_users (
   display_name text NOT NULL,
   password_hash text NOT NULL,
   password_salt text NOT NULL,
+  role text NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE freedex_users
+  ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user';
 
 CREATE TABLE IF NOT EXISTS freedex_sessions (
   token_hash text PRIMARY KEY,
@@ -55,3 +59,18 @@ CREATE TABLE IF NOT EXISTS freedex_library (
 
 CREATE INDEX IF NOT EXISTS freedex_library_kind_idx
   ON freedex_library (owner_key_id, kind, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS freedex_admin_films (
+  tmdb_id bigint PRIMARY KEY CHECK (tmdb_id > 0),
+  title text NOT NULL,
+  release_year integer,
+  description text NOT NULL DEFAULT '',
+  poster_url text,
+  official_links jsonb NOT NULL DEFAULT '[]'::jsonb,
+  created_by text REFERENCES freedex_users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS freedex_admin_films_updated_idx
+  ON freedex_admin_films (updated_at DESC);
