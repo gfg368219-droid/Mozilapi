@@ -34,4 +34,3 @@ externalPort = 80
 [userenv]
 
 [userenv.shared]
-INITIAL_ADMIN_EMAIL = "ysoeok@gmail.com"
