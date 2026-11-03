@@ -1,2 +1,3 @@
 - [MozAnim product direction](mozanim-product-direction.md) — dark/blue visual direction, no upstream branding, public docs, and concise schedule UI.
 - [Portable npm lockfiles](portable-npm-lockfiles.md) — keep package tarball URLs public when builds run outside Replit.
+j'ai pas fini le scraper films fini
