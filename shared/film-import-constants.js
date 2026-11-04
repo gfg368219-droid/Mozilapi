@@ -1,0 +1,2 @@
+export const MAX_FILM_IMPORT_BYTES = 10 * 1024 * 1024;
+export const MAX_FILM_IMPORT_COUNT = 1000;

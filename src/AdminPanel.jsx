@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, Check, ExternalLink, FileUp, RefreshCw, ShieldCheck } from 'lucide-react';
+import { MAX_FILM_IMPORT_BYTES, MAX_FILM_IMPORT_COUNT } from '../shared/film-import-constants.js';
 
 async function readJson(response) {
   const payload = await response.json().catch(() => ({}));
@@ -13,7 +14,9 @@ async function readJson(response) {
 
 export default function AdminPanel({ onImported }) {
   const fileInput = useRef(null);
+  const importInFlight = useRef(false);
   const [films, setFilms] = useState([]);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
@@ -36,44 +39,63 @@ export default function AdminPanel({ onImported }) {
 
   useEffect(() => { loadFilms(); }, [loadFilms]);
 
-  const importFile = async (event) => {
-    event.preventDefault();
-    const file = fileInput.current?.files?.[0];
+  const importFile = async (file, confirmed = rightsConfirmed) => {
+    if (importInFlight.current) return;
     setError('');
     setResult(null);
     if (!file) {
       setError('Choisissez un fichier texte à importer.');
       return;
     }
-    if (file.size > 1_000_000) {
-      setError('Le fichier dépasse la limite de 1 Mo.');
+    if (file.size > MAX_FILM_IMPORT_BYTES) {
+      setError(`Le fichier dépasse la limite de ${Math.ceil(MAX_FILM_IMPORT_BYTES / (1024 * 1024))} Mo.`);
       return;
     }
-    if (!rightsConfirmed) {
+    if (!confirmed) {
       setError('Confirmez que les liens ont une diffusion autorisée.');
       return;
     }
 
+    importInFlight.current = true;
     setPending(true);
     try {
       const text = await file.text();
       const response = await fetch('/api/admin/films/import', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, rightsConfirmed })
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'X-Rights-Confirmed': String(confirmed)
+        },
+        body: text
       });
       const payload = await readJson(response);
       setResult(payload);
       if (fileInput.current) fileInput.current.value = '';
+      setSelectedFile(null);
       await loadFilms();
       onImported?.();
     } catch (importError) {
       setError(importError.message || 'Import impossible.');
       setResult(importError.payload || null);
     } finally {
+      importInFlight.current = false;
       setPending(false);
     }
+  };
+
+  const handleFileChange = (event) => {
+    const file = event.currentTarget.files?.[0] || null;
+    setSelectedFile(file);
+    setError('');
+    setResult(null);
+    if (file && rightsConfirmed) void importFile(file, true);
+  };
+
+  const handleRightsChange = (event) => {
+    const confirmed = event.currentTarget.checked;
+    setRightsConfirmed(confirmed);
+    if (confirmed && selectedFile) void importFile(selectedFile, true);
   };
 
   return <section className="page admin-page">
@@ -86,17 +108,17 @@ export default function AdminPanel({ onImported }) {
       <button className="button small" type="button" onClick={loadFilms} disabled={loading}><RefreshCw size={14} /> Actualiser</button>
     </header>
 
-    <form className="admin-import-card" onSubmit={importFile}>
-      <div className="admin-import-title"><FileUp size={18} /><div><strong>Importer un fichier films.txt</strong><span>Format texte, 1 Mo maximum</span></div></div>
+    <form className="admin-import-card" onSubmit={(event) => { event.preventDefault(); void importFile(selectedFile, rightsConfirmed); }}>
+      <div className="admin-import-title"><FileUp size={18} /><div><strong>Importer un fichier films.txt</strong><span>TXT, {Math.ceil(MAX_FILM_IMPORT_BYTES / (1024 * 1024))} Mo et {MAX_FILM_IMPORT_COUNT.toLocaleString('fr-FR')} fiches maximum</span></div></div>
       <label className="admin-file-field">
         <span>Fichier catalogue</span>
-        <input ref={fileInput} type="file" accept=".txt,text/plain" />
+        <input ref={fileInput} type="file" accept=".txt,text/plain" onChange={handleFileChange} />
       </label>
       <label className="admin-rights-confirmation">
-        <input type="checkbox" checked={rightsConfirmed} onChange={(event) => setRightsConfirmed(event.target.checked)} />
+        <input type="checkbox" checked={rightsConfirmed} onChange={handleRightsChange} />
         <span>Je confirme que les liens sont officiels ou que leur diffusion est autorisée.</span>
       </label>
-      <p className="admin-format-help">Pour chaque film, ajoutez une ligne « Lien officiel: https://… ». Seules les plateformes approuvées sont conservées ; les URL de lecteurs ou d’iframes sont ignorées.</p>
+      <p className="admin-format-help">L’ajout démarre automatiquement après sélection du fichier et confirmation des droits. Pour chaque film, ajoutez une ligne « Lien officiel: https://… ». Seules les plateformes approuvées sont conservées ; les URL de lecteurs ou d’iframes sont ignorées.</p>
       {error && <div className="admin-feedback error" role="alert"><AlertCircle size={16} />{error}</div>}
       {result && <div className={`admin-feedback ${result.imported ? 'success' : 'error'}`} role="status">
         {result.imported ? <Check size={16} /> : <AlertCircle size={16} />}
@@ -104,8 +126,8 @@ export default function AdminPanel({ onImported }) {
           {(result.ignoredPlayerLinks || result.ignoredUnapprovedLinks) ? ` ${result.ignoredPlayerLinks || 0} lien(s) de lecteur et ${result.ignoredUnapprovedLinks || 0} lien(s) non autorisé(s) ignorés.` : ''}
         </span>
       </div>}
-      <button className="button primary" type="submit" disabled={pending || !rightsConfirmed}>
-        <FileUp size={15} /> {pending ? 'Import en cours…' : 'Importer les fiches'}
+      <button className="button primary" type="submit" disabled={pending || !rightsConfirmed || !selectedFile}>
+        <FileUp size={15} /> {pending ? 'Import en cours…' : 'Ajouter maintenant'}
       </button>
     </form>
 

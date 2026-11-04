@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from
 import { getPool } from './db.js';
 import { getAnimeSamaCatalogue, getAnimeSamaWork } from './anime-sama-api.js';
 import { parseFilmImport } from './admin-films.js';
+import { MAX_FILM_IMPORT_BYTES } from '../shared/film-import-constants.js';
 
 const validKinds = new Set(['anime', 'film', 'webtoon', 'scan']);
 const allKinds = [...validKinds];
@@ -43,6 +44,22 @@ const readJson = async (request, maxBytes = 5_000_000) => {
     error.statusCode = 400;
     throw error;
   }
+};
+
+const readRawText = async (request, maxBytes) => {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maxBytes) {
+      const maxMegabytes = Math.ceil(maxBytes / (1024 * 1024));
+      const error = new Error(`Le fichier dépasse la limite de ${maxMegabytes} Mo.`);
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 };
 
 const hash = (value) => createHash('sha256').update(value).digest('hex');
@@ -451,12 +468,16 @@ export async function handleApiRequest(request, response) {
         json(response, 429, { error: 'Limite d’import atteinte. Réessayez plus tard.' });
         return true;
       }
-      const body = await readJson(request, 1_100_000);
-      if (body.rightsConfirmed !== true) {
+      if (!String(request.headers['content-type'] || '').toLowerCase().startsWith('text/plain')) {
+        json(response, 415, { error: 'Envoyez un fichier texte au format TXT.' });
+        return true;
+      }
+      const text = await readRawText(request, MAX_FILM_IMPORT_BYTES);
+      if (request.headers['x-rights-confirmed'] !== 'true') {
         json(response, 400, { error: 'Confirmez que les liens ont une diffusion autorisée.' });
         return true;
       }
-      const parsed = parseFilmImport(body.text);
+      const parsed = parseFilmImport(text);
       if (!parsed.films.length) {
         json(response, 400, {
           error: 'Aucune fiche importée : ajoutez au moins un champ « Lien officiel: » vers une plateforme autorisée.',

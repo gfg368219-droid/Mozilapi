@@ -1,7 +1,5 @@
 import { approvedPosterUrl, approvedWatchLink } from '../shared/official-links.js';
-
-const MAX_FILE_BYTES = 1_000_000;
-const MAX_FILMS = 100;
+import { MAX_FILM_IMPORT_BYTES, MAX_FILM_IMPORT_COUNT } from '../shared/film-import-constants.js';
 
 function splitFilmBlocks(text) {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
@@ -52,15 +50,16 @@ export function parseFilmImport(text) {
     error.statusCode = 400;
     throw error;
   }
-  if (Buffer.byteLength(text, 'utf8') > MAX_FILE_BYTES) {
-    const error = new Error('Le fichier dépasse la limite de 1 Mo.');
+  if (Buffer.byteLength(text, 'utf8') > MAX_FILM_IMPORT_BYTES) {
+    const maxMegabytes = Math.ceil(MAX_FILM_IMPORT_BYTES / (1024 * 1024));
+    const error = new Error(`Le fichier dépasse la limite de ${maxMegabytes} Mo.`);
     error.statusCode = 413;
     throw error;
   }
 
   const blocks = splitFilmBlocks(text);
-  if (!blocks.length || blocks.length > MAX_FILMS) {
-    const error = new Error(`Le fichier doit contenir de 1 à ${MAX_FILMS} fiches au format films.txt.`);
+  if (!blocks.length || blocks.length > MAX_FILM_IMPORT_COUNT) {
+    const error = new Error(`Le fichier doit contenir de 1 à ${MAX_FILM_IMPORT_COUNT.toLocaleString('fr-FR')} fiches au format films.txt.`);
     error.statusCode = 400;
     throw error;
   }
