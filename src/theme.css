@@ -382,3 +382,102 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .reader-controls button { padding: 8px 7px; font-size: 10px; }
   .public-api-footer { align-items: flex-start; flex-direction: column; }
 }
+
+.embed-shell { min-height: 100vh; padding: clamp(12px, 3vw, 28px); background: #080c12; }
+.embed-shell .page { width: min(100%, 1080px); margin-inline: auto; }
+.embed-state { min-height: 55vh; display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; color: #aebbd0; font-size: 13px; }
+.embed-state .spinner { width: 18px; height: 18px; border: 2px solid #38516e; border-top-color: #55b7ff; border-radius: 50%; animation: spin .8s linear infinite; }
+.embed-error { align-content: center; flex-direction: column; text-align: center; }
+.embed-error svg { color: #f0a4b0; }
+.embed-error strong { color: #eef4fc; font: 700 18px var(--display); }
+.embed-error span { max-width: 520px; line-height: 1.6; }
+.scan-reader { width: min(100%, 1080px); padding: 8px 0 48px; }
+.scan-reader-hero { position: relative; min-height: 156px; display: flex; flex-direction: column; justify-content: flex-end; gap: 11px; margin: 0 0 16px; padding: 18px 22px; overflow: hidden; border: 1px solid #23344a; border-radius: 17px; background-color: #0c1522; background-position: center 40%; background-size: cover; box-shadow: 0 15px 40px #0004; }
+.scan-reader-hero .back-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; background: transparent; color: #92c8ff; font-size: 12px; }
+.scan-reader-title { display: grid; gap: 3px; }
+.scan-reader-title h1 { margin: 0; color: #f5f8fc; font: 800 clamp(25px, 4.8vw, 37px)/1 var(--display); letter-spacing: -.035em; text-transform: uppercase; }
+.scan-reader-title span { color: #b7c5d8; font: 700 15px var(--display); letter-spacing: .04em; }
+.scan-reader-language { position: absolute; top: 20px; right: 22px; padding: 7px 11px; border: 1px solid #5b91c8; border-radius: 8px; background: #10243bdb; color: #e9f4ff; font-size: 11px; font-weight: 700; }
+.scan-reader-language-select { display: flex; align-items: center; gap: 5px; padding: 4px 7px 4px 9px; }
+.scan-reader-language-select select { max-width: 100px; appearance: none; border: 0; background: transparent; color: #e9f4ff; font-size: 11px; font-weight: 700; }
+.scan-reader-language-select option { background: #10243b; color: #e9f4ff; }
+.scan-reader-panel { display: grid; gap: 11px; padding: 14px; border: 1px solid #26364b; border-radius: 16px; background: #111722; }
+.scan-chapter-select { position: relative; display: flex; align-items: center; }
+.scan-chapter-select select { width: 100%; min-height: 45px; appearance: none; padding: 0 43px 0 14px; border: 1px solid #344963; border-radius: 10px; background: #0a1320; color: #eef4fc; font-size: 14px; font-weight: 700; }
+.scan-chapter-select svg { position: absolute; right: 13px; color: #91a6be; pointer-events: none; }
+.scan-chapter-select select:disabled { opacity: .88; cursor: default; }
+.scan-action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.scan-action-button { min-height: 45px; display: flex; align-items: center; justify-content: center; gap: 9px; border: 1px solid #303c4d; border-radius: 11px; background: #1b202a; color: #e0e7f1; font-size: 13px; font-weight: 700; }
+.scan-action-button:hover, .scan-action-button.active { border-color: #6685b1; background: #293342; }
+.scan-settings { display: grid; gap: 12px; padding: 12px 2px 2px; border-top: 1px solid #202c3a; }
+.scan-setting-group { display: grid; grid-template-columns: 65px minmax(0, 1fr); align-items: center; gap: 10px; }
+.scan-setting-group > span { color: #8794a7; font: 700 10px var(--mono); letter-spacing: .06em; }
+.scan-setting-group > div { display: flex; align-items: center; gap: 8px; }
+.scan-setting-group > div > button, .scan-speed-select { min-height: 40px; padding: 0 12px; border: 1px solid #303a4a; border-radius: 10px; background: #101622; color: #d7e1ef; font-size: 12px; font-weight: 650; }
+.scan-setting-group > div > button.selected { border-color: #467ec1; background: #1a3a68; color: #f4f8ff; }
+.scan-setting-group > div > button:hover { border-color: #588cc8; }
+.scan-speed-select { position: relative; min-width: 75px; display: inline-flex; align-items: center; justify-content: space-between; gap: 9px; }
+.scan-speed-select select { width: 100%; appearance: none; border: 0; outline: 0; background: transparent; color: inherit; font-size: inherit; font-weight: inherit; }
+.scan-speed-select svg { flex: none; color: #96a9be; pointer-events: none; }
+.scan-surface-options { gap: 9px !important; }
+.scan-surface-options button { width: 34px; height: 34px; min-height: 34px !important; padding: 0 !important; border: 2px solid #667284 !important; border-radius: 50% !important; background: var(--surface-color) !important; }
+.scan-surface-options button.selected { outline: 2px solid #69b8ff; outline-offset: 2px; }
+.scan-chapter-nav { display: grid; grid-template-columns: 54px minmax(0, 1fr) 54px; align-items: center; gap: 10px; margin: 14px 0; padding: 10px; border: 1px solid #27374a; border-radius: 15px; background: #111722; text-align: center; }
+.scan-chapter-nav .reader-chapter-step { width: 48px; height: 48px; border-color: #355783; border-radius: 13px; background: #17345b; color: #e5f2ff; }
+.scan-chapter-nav .reader-chapter-step:disabled { opacity: .34; }
+.scan-chapter-nav > div { min-width: 0; display: grid; gap: 3px; }
+.scan-chapter-nav strong { overflow: hidden; color: #f2f6fb; font: 700 16px var(--display); text-overflow: ellipsis; white-space: nowrap; }
+.scan-chapter-nav span { color: #99a8bc; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
+.scan-page-status { display: flex; justify-content: space-between; margin: 15px 3px 6px; color: #8a9bb0; font: 9px var(--mono); letter-spacing: .05em; }
+.scan-reader .reader-progress { margin: 0 0 11px; }
+.scan-reader-canvas { width: 100%; margin: 0 auto; background: var(--reader-surface, #0e1725); }
+.scan-reader-canvas.reader-canvas { padding: 10px; border-radius: 9px; }
+.scan-reader-canvas.reader-canvas img { max-height: calc(100dvh - 300px); border: 0; box-shadow: none; }
+.scan-reader-canvas.webtoon-canvas { width: min(900px, 100%); margin: 0 auto; }
+.scan-reader-canvas .webtoon-page { background: var(--reader-surface, #0e1725); }
+.scan-reader-canvas .webtoon-page img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.scan-reader-canvas .webtoon-page figcaption { padding: 7px; color: #8797aa; }
+.scan-reader.reader-surface-blue { --reader-surface: #0e1725; background: transparent; }
+.scan-reader.reader-surface-light { --reader-surface: #f3f5f8; color: #17202c; }
+.scan-reader.reader-surface-light .scan-page-status { color: #536276; }
+.scan-reader.reader-surface-light .reader-progress { background: #dce2e9; }
+.scan-reader.reader-surface-light .webtoon-page figcaption { color: #536276; }
+.scan-reader.reader-surface-black { --reader-surface: #050608; background: transparent; }
+.scan-reader:fullscreen { width: 100%; height: 100%; max-width: none; overflow: auto; padding: 20px clamp(12px, 4vw, 48px); background: #080c12; }
+.scan-reader.reader-surface-light:fullscreen { background: #f3f5f8; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.embed-form { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(160px, 1fr) auto; gap: 13px; align-items: end; }
+.embed-form .field { min-width: 0; }
+.embed-form .field input { width: 100%; min-height: 40px; }
+.embed-form .button { min-height: 40px; white-space: nowrap; }
+.embed-result { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; }
+.embed-result .api-code { min-width: 0; flex: 1; margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.embed-result .button { flex: none; }
+.embed-help { margin: 12px 0 0; color: #94a4b8; font-size: 10px; line-height: 1.6; }
+
+@media (max-width: 640px) {
+  .embed-shell { padding: 10px 12px; }
+  .scan-reader { padding-top: 0; }
+  .scan-reader-hero { min-height: 144px; margin-bottom: 13px; padding: 16px; border-radius: 0 0 16px 16px; }
+  .scan-reader-language { top: 14px; right: 14px; padding: 6px 8px; font-size: 10px; }
+  .scan-reader-panel { gap: 9px; padding: 11px; border-radius: 14px; }
+  .scan-chapter-select select { min-height: 42px; font-size: 12px; }
+  .scan-action-row { gap: 8px; }
+  .scan-action-button { min-height: 42px; gap: 6px; font-size: 11px; }
+  .scan-settings { gap: 10px; }
+  .scan-setting-group { grid-template-columns: 49px minmax(0, 1fr); gap: 7px; }
+  .scan-setting-group > span { font-size: 9px; }
+  .scan-setting-group > div { gap: 6px; }
+  .scan-setting-group > div > button, .scan-speed-select { min-height: 37px; padding: 0 9px; font-size: 11px; }
+  .scan-surface-options button { width: 32px; height: 32px; min-height: 32px !important; }
+  .scan-chapter-nav { grid-template-columns: 48px minmax(0, 1fr) 48px; gap: 7px; margin: 12px 0; padding: 8px; }
+  .scan-chapter-nav .reader-chapter-step { width: 42px; height: 42px; }
+  .scan-chapter-nav strong { font-size: 14px; }
+  .scan-reader-canvas.reader-canvas { padding: 5px; }
+  .scan-reader-canvas.reader-canvas img { max-height: calc(100dvh - 250px); }
+  .scan-reader .reader-controls { padding: 10px 0; }
+  .scan-reader .reader-controls button { padding: 8px 7px; font-size: 10px; }
+  .embed-form { grid-template-columns: 1fr; }
+  .embed-result { flex-direction: column; }
+  .embed-result .button { align-self: flex-start; }
+}

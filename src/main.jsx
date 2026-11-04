@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Pause,
-  AlertCircle, Code2, Film, LogIn, LogOut, Play, RefreshCw, Search, ShieldCheck,
+  AlertCircle, Code2, Film, LogIn, LogOut, Maximize2, Minimize2, Play, RefreshCw, Search, Settings2, ShieldCheck,
   Share2, Tv, UserPlus, X
 } from 'lucide-react';
 import DeveloperPortal from './DeveloperPortal.jsx';
@@ -27,6 +27,17 @@ const kindLabel = (kind) => ({
   webtoon: 'Webtoon',
   scan: 'Scan'
 }[kind] || 'Animé');
+const chapterPages = (entry) => {
+  const pages = entry?.pages || entry?.pageUrls || entry?.images;
+  return Array.isArray(pages) ? pages : [];
+};
+const chapterLanguage = (entry) => {
+  const value = `${entry?.language || ''} ${entry?.lang || ''} ${entry?.version || ''} ${entry?.name || ''} ${entry?.title || ''} ${entry?.url || entry?.sourceUrl || ''}`.toUpperCase();
+  if (/VOSTFR|VOST|SUBTIT/.test(value)) return 'VOSTFR';
+  if (/\/VF(?:\/|$|[?#])|\bVF\b|FRENCH|FRANÇAIS/.test(value)) return 'VF';
+  if (/\/VA(?:\/|$|[?#])|\bVA\b|JAPANESE|JAPONAIS/.test(value)) return 'VA';
+  return 'LECTURE';
+};
 const CATALOGUE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const WORK_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const readApiJson = async (response, fallbackMessage) => {
@@ -377,7 +388,7 @@ function App() {
   const openChapter = async (chapter) => {
     setEpisodeReader(null);
     const entry = typeof chapter === 'string' ? { url: chapter } : chapter;
-    const pages = entry.pages || entry.pageUrls || entry.images || [];
+    const pages = chapterPages(entry);
     if (pages.length) {
       setReader({ ...entry, pages });
       return;
@@ -716,13 +727,13 @@ function PosterImage({ src, label }) {
   return <img src={src} alt={label ? `Visuel de ${label}` : ''} loading="lazy" onError={() => setFailed(true)} />;
 }
 
-function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode }) {
+function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode, embedded = false }) {
   const poster = posterUrl(work.poster || work.cover || work.image);
-  const seasons = work.seasons || [];
+  const seasons = Array.isArray(work.seasons) ? work.seasons : [];
   const scanOrWebtoon = ['scan', 'webtoon'].includes(work.kind);
-  const chapterEntries = work.chapters || [];
+  const chapterEntries = Array.isArray(work.chapters) ? work.chapters : [];
   const chapters = [...new Map(chapterEntries.map((chapter, index) => {
-    const entry = typeof chapter === 'string' ? { url: chapter } : chapter;
+    const entry = typeof chapter === 'string' ? { url: chapter } : chapter && typeof chapter === 'object' ? chapter : {};
     const source = entry.url || entry.sourceUrl || `${entry.name || 'chapter'}-${index}`;
     const key = entry.sequence ? `${source}:sequence:${entry.sequence}` : source;
     return [key, entry];
@@ -734,7 +745,7 @@ function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode }
   const studio = typeof work.studio === 'string' ? work.studio.trim() : '';
   const showStudio = studio && !['unknown', 'inconnu', 'n/a', 'non renseigné', 'undefined', '-'].includes(studio.toLocaleLowerCase());
   return <div className="page detail-page">
-    <button className="back-link" onClick={onBack}><ArrowLeft size={16} /> Retour au catalogue</button>
+    {!embedded && <button className="back-link" onClick={onBack}><ArrowLeft size={16} /> Retour au catalogue</button>}
     <section className="detail-hero">
       {poster && <div className="detail-backdrop" style={{ backgroundImage: `url("${poster.replaceAll('"', '')}")` }} />}
       <div className="detail-overlay" />
@@ -772,7 +783,7 @@ function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode }
       <div className="chapter-list">{chapters.map((chapter, index) => {
         const entry = typeof chapter === 'string' ? { url: chapter } : chapter;
         const label = entry.name || entry.title || `Chapitre ${entry.number || index + 1}`;
-        const pages = entry.pages || entry.pageUrls || entry.images || [];
+         const pages = chapterPages(entry);
          const href = safeUrl(entry.url || entry.sourceUrl);
          const canRead = pages.length || (href && ['anime-sama.to', 'www.anime-sama.to'].includes(new URL(href).hostname));
         return <div className="chapter-row" key={`${label}-${index}`}>
@@ -788,7 +799,7 @@ function Detail({ work, loading, error, onRetry, onBack, onRead, onPlayEpisode }
 }
 
 function SeasonCard({ season, onRead, onPlayEpisode }) {
-  const versions = season.versions || [];
+  const versions = Array.isArray(season.versions) ? season.versions : [];
   return <article className="season-card">
     <div className="season-heading"><div><span className="season-number">SAISON</span><h3>{season.name || 'Saison'}</h3></div><span className="season-availability">{versions.length} version{versions.length > 1 ? 's' : ''}</span></div>
     {versions.length ? <div className="version-list">{versions.map((version, index) => {
@@ -907,23 +918,47 @@ function AnimeEpisodeReader({ episode, onBack, onSelectStream }) {
 }
 
 function ScanReader({ chapter, work, chapters, onOpenChapter, onBack }) {
-  const pages = (chapter.pages || []).map((page) => typeof page === 'string' ? page : page.url || page.src).map(safeUrl).filter(Boolean);
+  const pages = chapterPages(chapter).map((page) => typeof page === 'string' ? page : page?.url || page?.src).map(safeUrl).filter(Boolean);
   const [index, setIndex] = useState(0);
   const [failedPages, setFailedPages] = useState({});
+  const [mode, setMode] = useState(work.kind === 'webtoon' ? 'scroll' : 'page');
+  const [languageFilter, setLanguageFilter] = useState(() => chapterLanguage(chapter));
+  const [settingsOpen, setSettingsOpen] = useState(true);
+  const [autoScroll, setAutoScroll] = useState(false);
+  const [scrollSpeed, setScrollSpeed] = useState(1);
+  const [surface, setSurface] = useState('blue');
+  const [fullscreen, setFullscreen] = useState(false);
+  const readerRef = useRef(null);
   const pageRefs = useRef([]);
-  useEffect(() => { setIndex(0); }, [chapter]);
-  useEffect(() => { setFailedPages({}); pageRefs.current = []; window.scrollTo({ top: 0, behavior: 'smooth' }); }, [chapter]);
-  const continuous = work.kind === 'webtoon';
-  const chapterEntries = chapters.map((entry) => typeof entry === 'string' ? { url: entry } : entry || {});
+  const allChapterEntries = (Array.isArray(chapters) ? chapters : []).map((entry) => typeof entry === 'string' ? { url: entry } : entry || {});
+  const languageOptions = [...new Set(allChapterEntries.map(chapterLanguage).filter((value) => value !== 'LECTURE'))];
+  const activeLanguageFilter = languageOptions.includes(languageFilter) ? languageFilter : languageOptions[0];
+  const chapterEntries = languageOptions.length > 1
+    ? allChapterEntries.filter((entry) => chapterLanguage(entry) === activeLanguageFilter)
+    : allChapterEntries;
   const currentKey = (entry) => `${safeUrl(entry?.url || entry?.sourceUrl)}::${entry?.sequence ?? ''}::${entry?.name || entry?.title || ''}`;
   const currentChapterIndex = chapterEntries.findIndex((entry) => currentKey(entry) === currentKey(chapter));
   const selectedChapterIndex = currentChapterIndex >= 0 ? currentChapterIndex : 0;
+  const chapterLabel = chapter.name || chapter.title || `Chapitre ${chapter.sequence || selectedChapterIndex + 1}`;
+  const cover = posterUrl(work.poster || work.cover || work.image);
+  const language = chapterLanguage(chapter);
   const chooseChapter = (nextIndex) => {
     if (nextIndex < 0 || nextIndex >= chapterEntries.length || nextIndex === selectedChapterIndex) return;
     onOpenChapter(chapterEntries[nextIndex]);
   };
   useEffect(() => {
-    if (!continuous || !('IntersectionObserver' in window)) return undefined;
+    setIndex(0);
+    setFailedPages({});
+    pageRefs.current = [];
+    setAutoScroll(false);
+    if (languageOptions.length > 1) {
+      const nextLanguage = chapterLanguage(chapter);
+      setLanguageFilter(languageOptions.includes(nextLanguage) ? nextLanguage : languageOptions[0]);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [chapter]);
+  useEffect(() => {
+    if (mode !== 'scroll' || !('IntersectionObserver' in window)) return undefined;
     const observer = new IntersectionObserver((entries) => {
       const visible = entries.filter((entry) => entry.isIntersecting)
         .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
@@ -931,26 +966,199 @@ function ScanReader({ chapter, work, chapters, onOpenChapter, onBack }) {
     }, { rootMargin: '-35% 0px -45% 0px', threshold: [0, 0.2, 0.5, 0.8] });
     pageRefs.current.filter(Boolean).forEach((node) => observer.observe(node));
     return () => observer.disconnect();
-  }, [continuous, chapter, pages.length]);
-  return <section className="page reader-page">
-    <div className="reader-toolbar scan-reader-toolbar">
-      <button className="back-link" onClick={onBack}><ArrowLeft size={16} /><span>Retour à la fiche</span></button>
-      <div className="reader-toolbar-title"><span>{work.name}</span><strong>{chapter.name || chapter.title || 'Lecture du chapitre'}</strong></div>
-      <div className="reader-toolbar-actions">
-        {chapterEntries.length > 1 && <button className="reader-chapter-step" disabled={selectedChapterIndex <= 0} onClick={() => chooseChapter(selectedChapterIndex - 1)} aria-label="Chapitre précédent"><ChevronLeft size={17} /></button>}
-        {chapterEntries.length > 1 && <select value={selectedChapterIndex} onChange={(event) => chooseChapter(Number(event.target.value))} aria-label="Choisir un chapitre">
-          {chapterEntries.map((entry, chapterIndex) => <option key={`${currentKey(entry)}-${chapterIndex}`} value={chapterIndex}>{entry.name || entry.title || `Chapitre ${chapterIndex + 1}`}</option>)}
-        </select>}
-        <span className="reader-page-count">{pages.length ? `${String(index + 1).padStart(2, '0')} / ${String(pages.length).padStart(2, '0')}` : ''}</span>
-        {chapterEntries.length > 1 && <button className="reader-chapter-step" disabled={selectedChapterIndex >= chapterEntries.length - 1} onClick={() => chooseChapter(selectedChapterIndex + 1)} aria-label="Chapitre suivant"><ChevronRight size={17} /></button>}
+  }, [mode, chapter, pages.length]);
+  useEffect(() => {
+    if (mode === 'scroll') pageRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [mode]);
+  useEffect(() => {
+    if (!autoScroll || !pages.length) return undefined;
+    if (mode === 'page') {
+      const timer = window.setInterval(() => {
+        setIndex((current) => {
+          if (current >= pages.length - 1) {
+            window.setTimeout(() => setAutoScroll(false), 0);
+            return current;
+          }
+          return current + 1;
+        });
+      }, Math.max(900, 6500 / scrollSpeed));
+      return () => window.clearInterval(timer);
+    }
+    const timer = window.setInterval(() => window.scrollBy({ top: 3 * scrollSpeed, behavior: 'auto' }), 45);
+    return () => window.clearInterval(timer);
+  }, [autoScroll, mode, pages.length, scrollSpeed]);
+  useEffect(() => {
+    const onFullscreenChange = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (mode !== 'page' || /INPUT|SELECT|TEXTAREA/.test(event.target?.tagName || '')) return;
+      if (event.key === 'ArrowLeft') setIndex((value) => Math.max(0, value - 1));
+      if (event.key === 'ArrowRight') setIndex((value) => Math.min(pages.length - 1, value + 1));
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mode, pages.length]);
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await readerRef.current?.requestFullscreen();
+    } catch {
+      setSettingsOpen(true);
+    }
+  };
+  const changeMode = (nextMode) => {
+    setMode(nextMode);
+    setAutoScroll(false);
+  };
+  const changeLanguage = (nextLanguage) => {
+    setLanguageFilter(nextLanguage);
+    const nextChapter = allChapterEntries.find((entry) => chapterLanguage(entry) === nextLanguage);
+    if (nextChapter) onOpenChapter(nextChapter);
+  };
+  const kindName = work.kind === 'webtoon' ? 'WEBTOON' : 'SCANS';
+  const chapterOptions = chapterEntries.length
+    ? chapterEntries
+    : [chapter];
+  return <section ref={readerRef} className={`page reader-page scan-reader reader-surface-${surface}`}>
+    <header className="scan-reader-hero" style={cover ? { backgroundImage: `linear-gradient(90deg, #070c14f2 0%, #09111dd9 58%, #09111d8a 100%), url("${cover.replaceAll('"', '')}")` } : undefined}>
+      <button className="back-link" onClick={onBack}><ArrowLeft size={16} /> Fiche de l’œuvre</button>
+      <div className="scan-reader-title"><h1>{work.name || work.title}</h1><span>{kindName}</span></div>
+      {languageOptions.length > 1
+        ? <label className="scan-reader-language scan-reader-language-select"><span className="sr-only">Version</span><select value={activeLanguageFilter} onChange={(event) => changeLanguage(event.target.value)}>{languageOptions.map((option) => <option key={option} value={option}>{option === 'VF' ? '🇫🇷 VF' : option}</option>)}</select><ChevronDown size={14} /></label>
+        : <span className="scan-reader-language">{language === 'VF' ? '🇫🇷 ' : ''}{language}</span>}
+    </header>
+
+    <section className="scan-reader-panel" aria-label="Réglages de lecture">
+      <label className="scan-chapter-select">
+        <span className="sr-only">Choisir un chapitre</span>
+        <select value={selectedChapterIndex} onChange={(event) => chooseChapter(Number(event.target.value))} disabled={chapterOptions.length < 2}>
+          {chapterOptions.map((entry, chapterIndex) => <option key={`${currentKey(entry)}-${chapterIndex}`} value={chapterIndex}>{entry.name || entry.title || `Chapitre ${chapterIndex + 1}`}</option>)}
+        </select>
+        <ChevronDown size={18} />
+      </label>
+      <div className="scan-action-row">
+        <button className={`scan-action-button ${settingsOpen ? 'active' : ''}`} onClick={() => setSettingsOpen((open) => !open)} aria-expanded={settingsOpen}><Settings2 size={17} /> Réglages</button>
+        <button className="scan-action-button" onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}{fullscreen ? 'Quitter le plein écran' : 'Plein écran'}</button>
       </div>
-    </div>
+      {settingsOpen && <div className="scan-settings">
+        <div className="scan-setting-group"><span>LECTURE</span><div>
+          <button className={mode === 'scroll' ? 'selected' : ''} aria-pressed={mode === 'scroll'} onClick={() => changeMode('scroll')}>Défilement</button>
+          <button className={mode === 'page' ? 'selected' : ''} aria-pressed={mode === 'page'} onClick={() => changeMode('page')}>Page par page</button>
+        </div></div>
+        <div className="scan-setting-group"><span>AUTO</span><div>
+          <button className={autoScroll ? 'selected' : ''} aria-pressed={autoScroll} onClick={() => setAutoScroll((enabled) => !enabled)}>{autoScroll ? 'Auto : ON' : 'Auto : OFF'}</button>
+          <label className="scan-speed-select"><span className="sr-only">Vitesse du défilement automatique</span><select value={scrollSpeed} onChange={(event) => setScrollSpeed(Number(event.target.value))}><option value={1}>×1</option><option value={2}>×2</option><option value={3}>×3</option></select><ChevronDown size={15} /></label>
+        </div></div>
+        <div className="scan-setting-group"><span>FOND</span><div className="scan-surface-options">
+          {[{ id: 'blue', label: 'Bleu nuit', color: '#0e1725' }, { id: 'light', label: 'Clair', color: '#f5f7fa' }, { id: 'black', label: 'Noir', color: '#050608' }].map((option) => <button key={option.id} className={surface === option.id ? 'selected' : ''} style={{ '--surface-color': option.color }} onClick={() => setSurface(option.id)} aria-label={`Fond ${option.label}`} aria-pressed={surface === option.id} />)}
+        </div></div>
+      </div>}
+    </section>
+
+    <nav className="scan-chapter-nav" aria-label="Navigation des chapitres">
+      <button className="reader-chapter-step" disabled={selectedChapterIndex <= 0} onClick={() => chooseChapter(selectedChapterIndex - 1)} aria-label="Chapitre précédent"><ChevronLeft size={21} /></button>
+      <div><strong>{chapterLabel}</strong><span>{selectedChapterIndex >= chapterOptions.length - 1 ? 'Dernier chapitre' : `Chapitre ${selectedChapterIndex + 1} sur ${chapterOptions.length}`}</span></div>
+      <button className="reader-chapter-step" disabled={selectedChapterIndex >= chapterOptions.length - 1} onClick={() => chooseChapter(selectedChapterIndex + 1)} aria-label="Chapitre suivant"><ChevronRight size={21} /></button>
+    </nav>
+    <div className="scan-page-status"><span>{mode === 'scroll' ? 'DÉFILEMENT' : 'PAGE PAR PAGE'}</span><span>{pages.length ? `Page ${index + 1} / ${pages.length}` : 'Pages'}</span></div>
     <div className="reader-progress" aria-hidden="true"><span style={{ width: `${pages.length ? ((index + 1) / pages.length) * 100 : 0}%` }} /></div>
-    {pages.length ? continuous
-      ? <div className="webtoon-canvas">{pages.map((src, pageIndex) => <figure className="webtoon-page" key={`${src}-${pageIndex}`} data-page-index={pageIndex} ref={(node) => { pageRefs.current[pageIndex] = node; }}>{failedPages[pageIndex] ? <div className="page-error"><AlertCircle size={21} /><strong>Image indisponible</strong><span>La page {pageIndex + 1} n’a pas pu être chargée.</span></div> : <img src={src} alt={`Page ${pageIndex + 1}`} loading={pageIndex > 1 ? 'lazy' : 'eager'} onError={() => setFailedPages((old) => ({ ...old, [pageIndex]: true }))} />}<figcaption>Page {String(pageIndex + 1).padStart(2, '0')}</figcaption></figure>)}</div>
-      : <><div className="reader-canvas">{failedPages[index] ? <div className="page-error"><AlertCircle size={21} /><strong>Image indisponible</strong><span>Cette page n’a pas pu être chargée.</span></div> : <img src={pages[index]} alt={`Page ${index + 1}`} onError={() => setFailedPages((old) => ({ ...old, [index]: true }))} />}<div className="reader-controls"><button disabled={index === 0} onClick={() => setIndex((value) => value - 1)}><ChevronLeft size={18} /> Précédente</button><span>Page {index + 1} sur {pages.length}</span><button disabled={index >= pages.length - 1} onClick={() => setIndex((value) => value + 1)}>Suivante <ChevronRight size={18} /></button></div></div><div className="reader-page-list">{pages.map((_, pageIndex) => <button className={index === pageIndex ? 'selected' : ''} key={pageIndex} onClick={() => setIndex(pageIndex)}>{pageIndex + 1}</button>)}</div></>
+    {pages.length ? mode === 'scroll'
+      ? <div className="webtoon-canvas scan-reader-canvas">{pages.map((src, pageIndex) => <figure className="webtoon-page" key={`${src}-${pageIndex}`} data-page-index={pageIndex} ref={(node) => { pageRefs.current[pageIndex] = node; }}>{failedPages[pageIndex] ? <div className="page-error"><AlertCircle size={21} /><strong>Image indisponible</strong><span>La page {pageIndex + 1} n’a pas pu être chargée.</span></div> : <img src={src} alt={`Page ${pageIndex + 1}`} loading={pageIndex > 1 ? 'lazy' : 'eager'} onError={() => setFailedPages((old) => ({ ...old, [pageIndex]: true }))} />}<figcaption>Page {String(pageIndex + 1).padStart(2, '0')}</figcaption></figure>)}</div>
+      : <><div className="reader-canvas scan-reader-canvas">{failedPages[index] ? <div className="page-error"><AlertCircle size={21} /><strong>Image indisponible</strong><span>Cette page n’a pas pu être chargée.</span></div> : <img src={pages[index]} alt={`Page ${index + 1}`} onError={() => setFailedPages((old) => ({ ...old, [index]: true }))} />}<div className="reader-controls"><button disabled={index === 0} onClick={() => setIndex((value) => value - 1)}><ChevronLeft size={18} /> Précédente</button><span>Page {index + 1} sur {pages.length}</span><button disabled={index >= pages.length - 1} onClick={() => setIndex((value) => value + 1)}>Suivante <ChevronRight size={18} /></button></div></div><div className="reader-page-list">{pages.map((_, pageIndex) => <button className={index === pageIndex ? 'selected' : ''} key={pageIndex} onClick={() => setIndex(pageIndex)}>{pageIndex + 1}</button>)}</div></>
       : <div className="empty-state"><BookOpen size={25} /><h3>Pages indisponibles</h3><p>Cette fiche ne fournit pas de pages d’images lisibles dans le site.</p></div>}
   </section>;
+}
+
+function EmbedPage() {
+  const token = new URLSearchParams(window.location.search).get('token') || '';
+  const [work, setWork] = useState(null);
+  const [reader, setReader] = useState(null);
+  const [episodeReader, setEpisodeReader] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    if (!token) {
+      setError('Lien iframe manquant ou invalide.');
+      setLoading(false);
+      return () => { active = false; };
+    }
+    fetch(`/api/embed/work?token=${encodeURIComponent(token)}`)
+      .then((response) => readApiJson(response, 'Impossible de charger cette œuvre.'))
+      .then((payload) => {
+        if (active) {
+          setWork(payload);
+          setError('');
+        }
+      })
+      .catch((requestError) => {
+        if (active) setError(requestError.message || 'Impossible de charger cette œuvre.');
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [token]);
+
+  const openChapter = async (chapter) => {
+    setEpisodeReader(null);
+    const entry = typeof chapter === 'string' ? { url: chapter } : chapter || {};
+    const pages = chapterPages(entry);
+    if (pages.length) {
+      setReader({ ...entry, pages });
+      return;
+    }
+    const chapterUrl = safeUrl(entry.url || entry.sourceUrl);
+    if (!chapterUrl || !['anime-sama.to', 'www.anime-sama.to'].includes(new URL(chapterUrl).hostname)) {
+      setError('Les pages ne sont pas incluses dans les données de cette œuvre.');
+      return;
+    }
+    const params = new URLSearchParams({ url: chapterUrl });
+    if (Number.isInteger(Number(entry.sequence)) && Number(entry.sequence) > 0) params.set('sequence', String(entry.sequence));
+    try {
+      const payload = await readApiJson(await fetch(`/api/anime-sama/chapter?${params.toString()}`), 'Les pages de ce chapitre ne sont pas disponibles.');
+      setReader({ ...entry, ...payload, pages: payload.pages || [] });
+    } catch (requestError) {
+      setError(requestError.message || 'Impossible de charger les pages du chapitre.');
+    }
+  };
+
+  const openEpisode = async (episode) => {
+    const entry = typeof episode === 'string' ? { url: episode } : episode || {};
+    const url = safePlayerUrl(entry.url || entry.sourceUrl);
+    const name = entry.name || entry.title || 'Lecture';
+    setReader(null);
+    if (!url) {
+      setEpisodeReader({ name, streams: [], loading: false, error: 'Aucune URL vidéo HTTPS valide n’est fournie.' });
+      return;
+    }
+    const host = new URL(url).hostname;
+    if (!['anime-sama.to', 'www.anime-sama.to'].includes(host)) {
+      setEpisodeReader({ name, streams: [{ name: entry.readerName || 'Lecteur', url }], selectedIndex: 0, loading: false, error: '' });
+      return;
+    }
+    setEpisodeReader({ name, streams: [], loading: true, error: '', requestUrl: url });
+    try {
+      const payload = await readApiJson(await fetch(`/api/anime-sama/episode?url=${encodeURIComponent(url)}`), 'Les lecteurs de cet épisode ne sont pas disponibles.');
+      const streams = (Array.isArray(payload.streams) ? payload.streams : []).map((stream, index) => {
+        const streamUrl = safePlayerUrl(stream?.url);
+        return streamUrl ? { name: stream.name || `Lecteur ${index + 1}`, url: streamUrl } : null;
+      }).filter(Boolean);
+      setEpisodeReader({ name: payload.name || name, streams, selectedIndex: 0, loading: false, error: streams.length ? '' : 'Aucun lecteur vidéo disponible.' });
+    } catch (requestError) {
+      setEpisodeReader({ name, streams: [], loading: false, error: requestError.message || 'Impossible de charger les lecteurs.' });
+    }
+  };
+
+  return <main className="embed-shell">
+    {loading ? <div className="embed-state"><span className="spinner" /> Chargement du lecteur…</div>
+      : error && !work ? <div className="embed-state embed-error"><AlertCircle size={20} /><strong>Lecteur indisponible</strong><span>{error}</span></div>
+        : episodeReader ? <AnimeEpisodeReader episode={episodeReader} onBack={() => setEpisodeReader(null)} onSelectStream={(selectedIndex) => setEpisodeReader((current) => current ? { ...current, selectedIndex } : current)} />
+          : reader ? <ScanReader chapter={reader} work={work} chapters={work.chapters || []} onOpenChapter={openChapter} onBack={() => { setReader(null); setError(''); }} />
+            : <Detail work={work} loading={false} error={error} onRetry={() => window.location.reload()} onBack={() => {}} onRead={openChapter} onPlayEpisode={openEpisode} embedded />}
+  </main>;
 }
 
 function AuthModal({ mode, setMode, onSubmit, onClose, pending, error }) {
@@ -973,4 +1181,8 @@ function AuthModal({ mode, setMode, onSubmit, onClose, pending, error }) {
   </div>;
 }
 
-createRoot(document.getElementById('root')).render(<App />);
+function RootApp() {
+  return window.location.pathname === '/embed' ? <EmbedPage /> : <App />;
+}
+
+createRoot(document.getElementById('root')).render(<RootApp />);

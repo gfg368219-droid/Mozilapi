@@ -39,6 +39,7 @@ const server = createServer(async (request, response) => {
     if (await handleApiRequest(request, response)) return;
     if (await handleAnimeSamaRequest(request, response)) return;
     const requestPath = decodeURIComponent(new URL(request.url || '/', 'http://localhost').pathname);
+    if (requestPath === '/embed') response.setHeader('Referrer-Policy', 'no-referrer');
     const relativePath = requestPath === '/' ? 'index.html' : requestPath.replace(/^\/+/, '');
     const requestedFile = path.resolve(root, relativePath);
     const safeFile = requestedFile.startsWith(`${root}${path.sep}`) ? requestedFile : path.join(root, 'index.html');

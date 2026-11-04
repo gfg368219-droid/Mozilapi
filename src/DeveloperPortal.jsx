@@ -22,6 +22,10 @@ export default function DeveloperPortal({ user, onNotice }) {
   const [keysLoading, setKeysLoading] = useState(true);
   const [keysError, setKeysError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [embedSlug, setEmbedSlug] = useState('');
+  const [embedCode, setEmbedCode] = useState('');
+  const [embedError, setEmbedError] = useState('');
+  const [embedPending, setEmbedPending] = useState(false);
   const kindOptions = [
     { id: 'anime', label: 'Animés' },
     { id: 'film', label: 'Films' },
@@ -125,6 +129,39 @@ export default function DeveloperPortal({ user, onNotice }) {
     }
   };
 
+  const createEmbed = async (event) => {
+    event.preventDefault();
+    setEmbedCode('');
+    setEmbedError('');
+    setEmbedPending(true);
+    try {
+      const payload = await request('/api/v1/embeds', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${testKey.trim()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: embedSlug.trim() })
+      });
+      if (typeof payload.embedPath !== 'string' || !payload.embedPath.startsWith('/embed?token=')) {
+        throw new Error('Le serveur n’a pas renvoyé de lien iframe valide.');
+      }
+      const src = new URL(payload.embedPath, window.location.origin).href;
+      setEmbedCode(`<iframe src="${src}" title="Lecteur MozAnim" width="100%" height="780" loading="lazy" referrerpolicy="no-referrer" allow="fullscreen; picture-in-picture" allowfullscreen></iframe>`);
+      onNotice('Code iframe prêt.');
+    } catch (error) {
+      setEmbedError(error.message || 'Impossible de générer le code iframe.');
+    } finally {
+      setEmbedPending(false);
+    }
+  };
+
+  const copyEmbedCode = async () => {
+    try {
+      await navigator.clipboard.writeText(embedCode);
+      onNotice('Code iframe copié.');
+    } catch {
+      onNotice('Sélectionnez puis copiez le code iframe.');
+    }
+  };
+
   const copyKey = async () => {
     try {
       await navigator.clipboard.writeText(issuedKey);
@@ -163,6 +200,18 @@ export default function DeveloperPortal({ user, onNotice }) {
       {docs?.endpoints?.length > 0 && <div className="endpoint-list">{docs.endpoints.map((endpoint, index) => <div key={`${endpoint.method}-${endpoint.path}-${index}`}><span className={`method ${String(endpoint.method).toLowerCase()}`}>{endpoint.method}</span><code>{endpoint.path}</code><p>{endpoint.description}</p></div>)}</div>}
       <pre className="api-code"><code>{`const response = await fetch("/api/v1/works?limit=10", {\n  headers: { Authorization: "Bearer VOTRE_CLE_API" }\n});\nconst catalogue = await response.json();`}</code></pre>
       <div className="docs-footer"><a href="/api/docs" target="_blank" rel="noreferrer">Ouvrir la documentation JSON <ExternalLink size={14} /></a><span>Une clé API est requise pour les données protégées.</span></div>
+    </section>
+
+    <section className="api-card embed-card">
+      <div className="api-card-title"><Code2 size={19} /><div><h2>Intégrer le lecteur</h2><p>Générez un iframe pour une œuvre de votre clé API.</p></div></div>
+      <form className="embed-form" onSubmit={createEmbed}>
+        <label className="field"><span>Clé API avec accès lecture</span><input required type="password" autoComplete="off" value={testKey} onChange={(event) => setTestKey(event.target.value)} placeholder="moz_…" /></label>
+        <label className="field"><span>Slug de l’œuvre</span><input required maxLength="180" value={embedSlug} onChange={(event) => setEmbedSlug(event.target.value)} placeholder="mon-oeuvre" /></label>
+        <button className="button primary" type="submit" disabled={embedPending || !testKey.trim() || !embedSlug.trim()}><Code2 size={15} /> {embedPending ? 'Génération…' : 'Générer le code iframe'}</button>
+      </form>
+      {embedError && <div className="portal-error"><AlertCircle size={16} /><span>{embedError}</span></div>}
+      {embedCode && <div className="embed-result"><pre className="api-code"><code>{embedCode}</code></pre><button className="button small" type="button" onClick={copyEmbedCode}><Copy size={14} /> Copier le code</button></div>}
+      <p className="embed-help">La clé API reste hors de l’iframe. Le jeton donne accès en lecture à cette seule œuvre et est invalidé si la clé est révoquée.</p>
     </section>
 
     <section className="api-card test-card"><div className="api-card-title"><Search size={19} /><div><h2>Tester une clé</h2><p>Collez une clé existante pour vérifier son accès.</p></div></div>

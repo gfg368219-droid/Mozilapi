@@ -3,6 +3,7 @@ import { getPool } from './db.js';
 import { getAnimeSamaCatalogue, getAnimeSamaWork } from './anime-sama-api.js';
 import { parseFilmImport } from './admin-films.js';
 import { MAX_FILM_IMPORT_BYTES } from '../shared/film-import-constants.js';
+import { createEmbedToken, verifyEmbedToken } from './embed-token.js';
 
 const validKinds = new Set(['anime', 'film', 'webtoon', 'scan']);
 const allKinds = [...validKinds];
@@ -293,13 +294,15 @@ const endpointDocs = {
   notes: [
     'La documentation est publique. Les opérations sur les œuvres nécessitent une clé API.',
     'Les clés lecture seule ne peuvent pas importer, modifier ou supprimer des œuvres.',
-    'Une clé peut être limitée aux types anime, film, scan et webtoon.'
+    'Une clé peut être limitée aux types anime, film, scan et webtoon.',
+    'Les jetons iframe sont limités à une œuvre et cessent de fonctionner quand la clé est révoquée.'
   ],
   endpoints: [
     { method: 'GET', path: '/api/health', scope: 'public', auth: 'Aucune', description: 'Vérifie que le service API répond.' },
     { method: 'GET', path: '/api/docs', scope: 'public', auth: 'Aucune', description: 'Renvoie cette documentation au format JSON.' },
     { method: 'GET', path: '/api/v1/works', scope: 'read', auth: 'Clé API lecture', description: 'Recherche dans le catalogue et les œuvres importées. Paramètres : q, kind, page, limit.' },
     { method: 'GET', path: '/api/v1/works/:slug', scope: 'read', auth: 'Clé API lecture', description: 'Renvoie une fiche, ses saisons, épisodes et chapitres.' },
+    { method: 'POST', path: '/api/v1/embeds', scope: 'read', auth: 'Clé API lecture', description: 'Génère un chemin iframe signé et limité à une œuvre appartenant à cette clé. Corps JSON : { "slug": "mon-oeuvre" }.' },
     { method: 'POST', path: '/api/v1/works/import', scope: 'write', auth: 'Clé API écriture', description: 'Importe ou met à jour jusqu’à 500 œuvres JSON appartenant à cette clé.' },
     { method: 'PUT', path: '/api/v1/works/:slug', scope: 'write', auth: 'Clé API écriture', description: 'Met à jour une œuvre appartenant à cette clé.' },
     { method: 'DELETE', path: '/api/v1/works/:slug', scope: 'write', auth: 'Clé API écriture', description: 'Supprime une œuvre appartenant à cette clé.' }
@@ -433,6 +436,92 @@ export async function handleApiRequest(request, response) {
         updatedAt: film.updated_at
       }));
       json(response, 200, { count: items.length, items });
+      return true;
+    }
+
+    if (pathname === '/api/v1/embeds' && request.method === 'POST') {
+      const client = await authenticateApiKey(request, 'read');
+      if (!client) {
+        json(response, 401, { error: 'Une clé API valide avec accès lecture est nécessaire.' }, true);
+        return true;
+      }
+      if (client.rateLimited) {
+        json(response, 429, { error: 'Limite atteinte : 120 requêtes par minute.' }, true);
+        return true;
+      }
+      const body = await readJson(request, 16_000);
+      const slug = String(body.slug || '').trim().toLowerCase();
+      if (!/^[a-z0-9][a-z0-9-]{0,179}$/.test(slug)) {
+        json(response, 400, { error: 'Saisissez le slug valide d’une œuvre.' }, true);
+        return true;
+      }
+      const result = await getPool().query(
+        `SELECT slug, kind
+         FROM freedex_library
+         WHERE owner_key_id = $1 AND slug = $2 AND kind = ANY($3::text[])
+         LIMIT 1`,
+        [client.id, slug, client.allowed_kinds || allKinds]
+      );
+      const work = result.rows[0];
+      if (!work) {
+        json(response, 404, { error: 'Œuvre introuvable pour cette clé API.' }, true);
+        return true;
+      }
+      const token = createEmbedToken(client.id, work.slug, process.env.SESSION_SECRET);
+      json(response, 200, {
+        slug: work.slug,
+        kind: work.kind,
+        embedPath: `/embed?token=${encodeURIComponent(token)}`
+      }, true);
+      return true;
+    }
+
+    if (pathname === '/api/embed/work' && request.method === 'GET') {
+      const scope = verifyEmbedToken(url.searchParams.get('token') || '', process.env.SESSION_SECRET);
+      if (!scope) {
+        json(response, 401, { error: 'Jeton iframe invalide.' });
+        return true;
+      }
+      if (isRateLimited(requestLimit, `embed:${scope.keyId}`, 120, 60_000)) {
+        json(response, 429, { error: 'Limite iframe atteinte. Réessayez dans une minute.' });
+        return true;
+      }
+      const result = await getPool().query(
+        `SELECT work.id, work.slug, work.owner_name, work.kind, work.name,
+                work.source_url, work.payload, work.updated_at
+         FROM freedex_library AS work
+         JOIN freedex_api_keys AS api_key ON api_key.id = work.owner_key_id
+         WHERE api_key.id = $1
+           AND api_key.revoked_at IS NULL
+           AND 'read' = ANY(api_key.scopes)
+           AND work.slug = $2
+           AND work.kind = ANY(api_key.allowed_kinds)
+         LIMIT 1`,
+        [scope.keyId, scope.slug]
+      );
+      const work = result.rows[0];
+      if (!work) {
+        json(response, 404, { error: 'Cette œuvre n’est plus disponible avec ce jeton.' });
+        return true;
+      }
+      let refreshed = {};
+      if (work.payload?.isAnimeSama && work.source_url) {
+        try {
+          refreshed = await getAnimeSamaWork(work.source_url);
+        } catch {
+          // Keep the API owner's saved data available when the upstream source is down.
+        }
+      }
+      json(response, 200, {
+        ...work.payload,
+        ...refreshed,
+        id: work.id,
+        slug: work.slug,
+        owner: work.owner_name,
+        kind: work.kind,
+        sourceUrl: work.source_url,
+        updatedAt: work.updated_at
+      });
       return true;
     }
 
